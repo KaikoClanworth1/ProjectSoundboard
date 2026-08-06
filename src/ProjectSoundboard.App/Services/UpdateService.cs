@@ -118,6 +118,13 @@ public sealed class UpdateService
                 return null;
             }
 
+            if (!ignoreSkipped && IsSnoozed(version))
+            {
+                Log.Info($"Update {version} is available but was deferred until " +
+                         $"{_settings.Settings.General.SnoozedUntilUtc:HH:mm}.");
+                return null;
+            }
+
             var asset = release.Assets?.FirstOrDefault(a =>
                 a.Name?.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) == true);
 
@@ -155,14 +162,44 @@ public sealed class UpdateService
         }
     }
 
-    /// <summary>True when enough time has passed to bother checking again.</summary>
+    /// <summary>
+    /// How close together two startup checks may be. This exists only to stop a restart
+    /// loop hammering the API — a single check per launch is nothing against GitHub's
+    /// sixty-an-hour allowance, and a longer gap just makes new releases look invisible.
+    /// </summary>
+    private static readonly TimeSpan MinimumCheckInterval = TimeSpan.FromMinutes(10);
+
+    /// <summary>How long "Later" holds off asking about that same version again.</summary>
+    private static readonly TimeSpan SnoozeDuration = TimeSpan.FromHours(4);
+
     public bool ShouldCheckOnStartup()
     {
         if (!IsConfigured) return false;
         if (!_settings.Settings.General.CheckForUpdates) return false;
 
         var last = _settings.Settings.General.LastUpdateCheckUtc;
-        return last is null || (DateTime.UtcNow - last.Value).TotalHours >= 24;
+        return last is null || DateTime.UtcNow - last.Value >= MinimumCheckInterval;
+    }
+
+    /// <summary>True while the user has told us "Later" about this particular version.</summary>
+    private bool IsSnoozed(Version version)
+    {
+        var general = _settings.Settings.General;
+
+        if (general.SnoozedUntilUtc is not { } until || DateTime.UtcNow >= until) return false;
+
+        return string.Equals(general.SnoozedUpdateVersion, version.ToString(),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Hold off on this version for a few hours after the user defers it.</summary>
+    public void SnoozeVersion(Version version)
+    {
+        _settings.Settings.General.SnoozedUpdateVersion = version.ToString();
+        _settings.Settings.General.SnoozedUntilUtc = DateTime.UtcNow + SnoozeDuration;
+        _settings.Save();
+
+        Log.Info($"Update {version} deferred for {SnoozeDuration.TotalHours:0} hours.");
     }
 
     // ---- downloading ------------------------------------------------------

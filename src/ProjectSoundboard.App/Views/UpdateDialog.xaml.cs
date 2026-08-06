@@ -110,12 +110,16 @@ public partial class UpdateDialog : Window
 
     private void OnLater(object sender, RoutedEventArgs e)
     {
+        // Mid-download this button reads "Cancel" and only stops the download.
         if (_cts is { IsCancellationRequested: false } && ProgressPanel.IsVisible)
         {
             _cts.Cancel();
             return;
         }
 
+        // Otherwise leave them alone about this version for a few hours, rather than
+        // asking again the next time they open the app.
+        _updates.SnoozeVersion(_update.Version);
         DialogResult = false;
     }
 

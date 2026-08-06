@@ -48,8 +48,13 @@ public sealed class GeneralSettings
     /// <summary>A release the user chose to skip; they are not asked about it again.</summary>
     public string? SkippedUpdateVersion { get; set; }
 
-    /// <summary>Throttles the startup check so it runs at most once a day.</summary>
+    /// <summary>Guards against re-checking on every restart, nothing more.</summary>
     public DateTime? LastUpdateCheckUtc { get; set; }
+
+    /// <summary>A release the user pressed "Later" on, and until when to leave them alone.</summary>
+    public string? SnoozedUpdateVersion { get; set; }
+
+    public DateTime? SnoozedUntilUtc { get; set; }
 }
 
 public sealed class AppearanceSettings
