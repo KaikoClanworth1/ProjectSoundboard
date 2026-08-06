@@ -197,16 +197,35 @@ public sealed partial class PropertiesViewModel : ObservableObject, IDisposable
 
     // ---- playback settings: invisible to the list, so nothing is rebuilt ----
 
+    /// <summary>
+    /// Every currently playing instance of this sound — the panel's own preview and any
+    /// normal triggers. Live tweaks have to reach all of them; only touching the preview
+    /// meant that adjusting volume while a sound was actually playing did nothing.
+    /// </summary>
+    private IEnumerable<PlaybackHandle> LiveHandles()
+    {
+        if (Sound is null) yield break;
+
+        if (_preview is { IsCompleted: false }) yield return _preview;
+
+        foreach (var handle in _services.Engine.Active)
+        {
+            if (handle.SoundId != Sound.Id || handle.IsCompleted) continue;
+            if (ReferenceEquals(handle, _preview)) continue;
+            yield return handle;
+        }
+    }
+
     partial void OnVolumeChanged(float value)
     {
         Apply(e => e.Volume = value, refreshTile: false);
-        _preview?.SetVolume(value);
+        foreach (var handle in LiveHandles()) handle.SetVolume(value);
     }
 
     partial void OnSpeedChanged(float value)
     {
         Apply(e => e.Speed = value, refreshTile: false);
-        _preview?.SetSpeed(value);
+        foreach (var handle in LiveHandles()) handle.SetSpeed(value);
     }
 
     partial void OnLoopChanged(bool value) => Apply(e => e.Loop = value, refreshTile: false);
@@ -511,8 +530,7 @@ public sealed partial class PropertiesViewModel : ObservableObject, IDisposable
     {
         if (Sound is null) return;
 
-        var handle = _preview is { IsCompleted: false } ? _preview : null;
-        handle ??= _services.Engine.Active.FirstOrDefault(h => h.SoundId == Sound.Id && !h.IsCompleted);
+        var handle = LiveHandles().FirstOrDefault();
 
         if (handle is null)
         {
