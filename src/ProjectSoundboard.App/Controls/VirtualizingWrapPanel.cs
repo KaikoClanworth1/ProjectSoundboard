@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
+using ProjectSoundboard.Core.Storage;
 
 namespace ProjectSoundboard.App.Controls;
 
@@ -52,6 +53,25 @@ public sealed class VirtualizingWrapPanel : VirtualizingPanel, IScrollInfo
     private Point _offset;
     private int _columns = 1;
 
+    /// <summary>
+    /// Width actually given to each tile. List view sets <see cref="ItemWidth"/> to an
+    /// absurd number to force a single column; measuring every row at 100,000px wide is
+    /// pure waste, so one column simply takes the width available.
+    /// </summary>
+    private double _columnWidth = 140d;
+
+    private bool _inMakeVisible;
+
+    /// <summary>
+    /// Nesting allowed before the recursion guard gives up. A healthy layout re-enters at
+    /// most once or twice (a scroll offset settling); anything deeper is a runaway.
+    /// </summary>
+    private const int MaxMeasureDepth = 6;
+
+    private int _measureDepth;
+    private bool _recursionReported;
+    private Size _lastDesired;
+
     // ---- IScrollInfo ------------------------------------------------------
 
     public bool CanVerticallyScroll { get; set; } = true;
@@ -92,32 +112,123 @@ public sealed class VirtualizingWrapPanel : VirtualizingPanel, IScrollInfo
         ScrollOwner?.InvalidateScrollInfo();
     }
 
-    /// <summary>Scroll a child into view — this is what keyboard navigation relies on.</summary>
+    /// <summary>
+    /// Scroll a child into view. Selection, focus and keyboard navigation all route through
+    /// here, so it runs constantly.
+    ///
+    /// The contract is strict: return the rectangle, in this panel's coordinates, that is
+    /// now genuinely visible — or <see cref="Rect.Empty"/> when we cannot help. Returning
+    /// the caller's own rectangle instead claims "this is visible exactly where you asked",
+    /// so the bring-into-view machinery believes the scroll succeeded, retries after the
+    /// next layout pass, gets the same answer, and nests layout passes until the stack runs
+    /// out — a StackOverflowException inside FrameworkElement.MeasureCore, which no handler
+    /// can catch. It only showed up on large libraries because that is when anything is far
+    /// enough off screen to need scrolling at all.
+    /// </summary>
     public Rect MakeVisible(Visual visual, Rect rectangle)
     {
-        var child = visual as UIElement;
-        if (child is null) return rectangle;
+        if (rectangle.IsEmpty || visual is null || ReferenceEquals(visual, this)) return Rect.Empty;
 
-        var index = InternalChildren.IndexOf(child);
-        if (index < 0) return rectangle;
+        // Focus lands on an element *inside* the tile, never on the container itself, so
+        // this must accept any descendant rather than looking for a direct child.
+        if (!IsAncestorOf(visual)) return Rect.Empty;
 
-        var generator = ItemContainerGenerator as ItemContainerGenerator;
-        var itemIndex = generator?.IndexFromContainer(child) ?? -1;
-        if (itemIndex < 0) return rectangle;
+        if (_inMakeVisible) return Rect.Empty;
+        _inMakeVisible = true;
 
-        var row = itemIndex / Math.Max(1, _columns);
+        try
+        {
+            rectangle = visual.TransformToAncestor(this).TransformBounds(rectangle);
+
+            // Arrange positions children with the scroll offset already subtracted, so add
+            // it back to work in extent coordinates.
+            rectangle.Y += _offset.Y;
+
+            var viewportTop = _offset.Y;
+            var viewportBottom = viewportTop + _viewport.Height;
+
+            if (rectangle.Top < viewportTop)
+                SetVerticalOffset(rectangle.Top);
+            else if (rectangle.Bottom > viewportBottom)
+                SetVerticalOffset(Math.Min(rectangle.Top, rectangle.Bottom - _viewport.Height));
+
+            // Report against wherever we actually ended up — SetVerticalOffset clamps.
+            var visible = new Rect(_offset.X, _offset.Y, _viewport.Width, _viewport.Height);
+            rectangle.Intersect(visible);
+            if (rectangle.IsEmpty) return Rect.Empty;
+
+            rectangle.Y -= _offset.Y;
+            return rectangle;
+        }
+        catch (InvalidOperationException)
+        {
+            // TransformToAncestor throws if the visual was recycled out from under us.
+            return Rect.Empty;
+        }
+        finally
+        {
+            _inMakeVisible = false;
+        }
+    }
+
+    /// <summary>
+    /// Scroll to an item by index, realising it on the way.
+    ///
+    /// Every virtualizing panel has to provide this: an item that has been virtualized away
+    /// has no container, so <c>ScrollIntoView</c> and keyboard navigation cannot reach it by
+    /// walking the visual tree — they call here instead. Without it they silently do nothing
+    /// and WPF keeps retrying, which is half of what made large libraries unstable.
+    /// </summary>
+    protected override void BringIndexIntoView(int index)
+    {
+        var itemCount = GetItemCount();
+        if (index < 0 || index >= itemCount) return;
+
+        var row = index / Math.Max(1, _columns);
         var top = row * ItemHeight;
         var bottom = top + ItemHeight;
 
-        if (top < VerticalOffset) SetVerticalOffset(top);
-        else if (bottom > VerticalOffset + ViewportHeight) SetVerticalOffset(bottom - ViewportHeight);
+        if (top < _offset.Y) SetVerticalOffset(top);
+        else if (bottom > _offset.Y + _viewport.Height) SetVerticalOffset(bottom - _viewport.Height);
 
-        return rectangle;
+        // The caller looks for the container as soon as this returns, so it has to exist.
+        UpdateLayout();
     }
 
     // ---- layout -----------------------------------------------------------
 
     protected override Size MeasureOverride(Size availableSize)
+    {
+        // Runaway layout recursion kills the process outright — a StackOverflowException is
+        // the one exception .NET will not let anyone catch, so it leaves nothing in the log
+        // and no dialog. Large libraries have crashed this way and it has not been possible
+        // to reproduce on demand, so this measures its own nesting: past a handful of levels
+        // it stops feeding the recursion and writes down that it happened. The layout is a
+        // frame stale, which is invisible; the alternative is the app vanishing.
+        if (_measureDepth > MaxMeasureDepth)
+        {
+            if (!_recursionReported)
+            {
+                _recursionReported = true;
+                Log.Warn($"Layout recursion guard tripped at depth {_measureDepth} " +
+                         $"({GetItemCount()} items, offset {_offset.Y:F0}). Layout was left unchanged.");
+            }
+
+            return _lastDesired;
+        }
+
+        _measureDepth++;
+        try
+        {
+            return _lastDesired = MeasureContent(availableSize);
+        }
+        finally
+        {
+            _measureDepth--;
+        }
+    }
+
+    private Size MeasureContent(Size availableSize)
     {
         // Touching InternalChildren is what forces WPF to create the item container
         // generator. Skip this and ItemContainerGenerator is null on the very first
@@ -128,10 +239,11 @@ public sealed class VirtualizingWrapPanel : VirtualizingPanel, IScrollInfo
 
         var width = double.IsInfinity(availableSize.Width) ? ItemWidth : availableSize.Width;
         _columns = Math.Max(1, (int)(width / ItemWidth));
+        _columnWidth = _columns == 1 ? Math.Max(1, width) : ItemWidth;
 
         var rows = (int)Math.Ceiling(itemCount / (double)_columns);
 
-        var newExtent = new Size(_columns * ItemWidth, rows * ItemHeight);
+        var newExtent = new Size(_columns * _columnWidth, rows * ItemHeight);
         var newViewport = new Size(width,
             double.IsInfinity(availableSize.Height) ? newExtent.Height : availableSize.Height);
 
@@ -143,27 +255,35 @@ public sealed class VirtualizingWrapPanel : VirtualizingPanel, IScrollInfo
             ScrollOwner?.InvalidateScrollInfo();
         }
 
+        // Handing back Infinity from a measure pass is an immediate InvalidOperationException,
+        // so an unconstrained dimension falls back to what the content actually needs.
+        var desired = new Size(
+            double.IsInfinity(availableSize.Width) ? newExtent.Width : availableSize.Width,
+            double.IsInfinity(availableSize.Height) ? newExtent.Height : availableSize.Height);
+
         if (itemCount == 0)
         {
             CleanUpItems(0, -1);
             return new Size(0, 0);
         }
 
-        var (first, last) = GetVisibleRange(itemCount);
-
         var generator = ItemContainerGenerator;
-        if (generator is null) return availableSize;
+        if (generator is null) return desired;
+
+        var (first, last) = GetVisibleRange(itemCount);
 
         var startPosition = generator.GeneratorPositionFromIndex(first);
         var childIndex = startPosition.Offset == 0 ? startPosition.Index : startPosition.Index + 1;
 
         using (generator.StartAt(startPosition, GeneratorDirection.Forward, true))
         {
-            var itemSize = new Size(ItemWidth, ItemHeight);
+            var itemSize = new Size(_columnWidth, ItemHeight);
 
             for (var i = first; i <= last; i++, childIndex++)
             {
-                var child = (UIElement)generator.GenerateNext(out var isNew);
+                // Null means the generator ran past the end of the collection, which can
+                // happen if items were removed between passes.
+                if (generator.GenerateNext(out var isNew) is not UIElement child) break;
 
                 if (isNew)
                 {
@@ -178,25 +298,26 @@ public sealed class VirtualizingWrapPanel : VirtualizingPanel, IScrollInfo
         }
 
         CleanUpItems(first, last);
-        return availableSize;
+        return desired;
     }
 
     protected override Size ArrangeOverride(Size finalSize)
     {
         var generator = ItemContainerGenerator as ItemContainerGenerator;
+        var columns = Math.Max(1, _columns);
 
         foreach (UIElement child in InternalChildren)
         {
             var itemIndex = generator?.IndexFromContainer(child) ?? -1;
             if (itemIndex < 0) continue;
 
-            var row = itemIndex / _columns;
-            var column = itemIndex % _columns;
+            var row = itemIndex / columns;
+            var column = itemIndex % columns;
 
             child.Arrange(new Rect(
-                column * ItemWidth,
+                column * _columnWidth,
                 row * ItemHeight - _offset.Y,
-                ItemWidth,
+                _columnWidth,
                 ItemHeight));
         }
 
@@ -210,10 +331,13 @@ public sealed class VirtualizingWrapPanel : VirtualizingPanel, IScrollInfo
         var firstRow = Math.Max(0, (int)(_offset.Y / ItemHeight) - cache);
         var visibleRows = (int)Math.Ceiling(_viewport.Height / ItemHeight) + 1 + cache * 2;
 
-        var first = firstRow * _columns;
+        // Both ends must stay inside the collection. Clamping only one of them lets the
+        // range run off the end after the list shrinks, and the generator then hands back
+        // null for every item past the end.
+        var first = Math.Min(firstRow * _columns, Math.Max(0, itemCount - 1));
         var last = Math.Min(itemCount - 1, first + visibleRows * _columns - 1);
 
-        return (Math.Min(first, Math.Max(0, itemCount - 1)), Math.Max(first, last));
+        return (first, Math.Max(first, last));
     }
 
     /// <summary>Recycle containers for anything that scrolled out of the realised window.</summary>
@@ -250,7 +374,9 @@ public sealed class VirtualizingWrapPanel : VirtualizingPanel, IScrollInfo
             case System.Collections.Specialized.NotifyCollectionChangedAction.Remove:
             case System.Collections.Specialized.NotifyCollectionChangedAction.Replace:
             case System.Collections.Specialized.NotifyCollectionChangedAction.Move:
-                RemoveInternalChildRange(args.Position.Index, args.ItemUICount);
+                // Position.Index is -1 when the affected item was never realised.
+                if (args.Position.Index >= 0 && args.ItemUICount > 0)
+                    RemoveInternalChildRange(args.Position.Index, args.ItemUICount);
                 break;
 
             case System.Collections.Specialized.NotifyCollectionChangedAction.Reset:
