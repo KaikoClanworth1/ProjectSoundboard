@@ -1,0 +1,32 @@
+<Application x:Class="ProjectSoundboard.App.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:conv="clr-namespace:ProjectSoundboard.App.Converters"
+             ShutdownMode="OnExplicitShutdown">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- Index 0 is the palette and is swapped at runtime by ThemeService. -->
+                <ResourceDictionary Source="Themes/Dark.xaml"/>
+                <ResourceDictionary Source="Themes/Controls.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+
+            <conv:BoolToVisibilityConverter x:Key="BoolToVisibility"/>
+            <conv:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibility"/>
+            <conv:InverseBoolConverter x:Key="InverseBool"/>
+            <conv:NullToVisibilityConverter x:Key="NullToVisibility"/>
+            <conv:NotNullToVisibilityConverter x:Key="NotNullToVisibility"/>
+            <conv:EmptyStringToVisibilityConverter x:Key="EmptyStringToVisibility"/>
+            <conv:CountToVisibilityConverter x:Key="CountToVisibility"/>
+            <conv:DurationConverter x:Key="Duration"/>
+            <conv:FileSizeConverter x:Key="FileSize"/>
+            <conv:PercentConverter x:Key="Percent"/>
+            <conv:DecibelConverter x:Key="Decibels"/>
+            <conv:SpeedConverter x:Key="SpeedText"/>
+            <conv:EnumToBoolConverter x:Key="EnumToBool"/>
+            <conv:EqualityToVisibilityConverter x:Key="EqualsToVisibility"/>
+            <conv:StringToBrushConverter x:Key="StringToBrush"/>
+            <conv:MathMultiplyConverter x:Key="Multiply"/>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

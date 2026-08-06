@@ -1,0 +1,55 @@
+# ---------------------------------------------------------------------------
+# Build output
+# ---------------------------------------------------------------------------
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+artifacts/
+*.dll
+*.exe
+*.pdb
+*.cache
+
+# ---------------------------------------------------------------------------
+# User data — NEVER commit this.
+#
+# Project Soundboard is portable: it keeps settings, the library index, custom
+# names, artwork, waveform caches, backups and logs in a Data folder next to the
+# executable. That folder contains absolute paths to the user's own music and
+# must stay out of the repository.
+# ---------------------------------------------------------------------------
+Data/
+**/Data/
+*.psbackup
+settings.json
+library.json
+*.pswf
+
+# ---------------------------------------------------------------------------
+# Editors and tooling
+# ---------------------------------------------------------------------------
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userprefs
+*.DotSettings.user
+
+# ---------------------------------------------------------------------------
+# OS noise
+# ---------------------------------------------------------------------------
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+
+# ---------------------------------------------------------------------------
+# NuGet
+# ---------------------------------------------------------------------------
+*.nupkg
+*.snupkg
+packages/
+.nuget/

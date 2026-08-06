@@ -1,0 +1,27 @@
+# Normalise line endings so the repo is consistent regardless of who clones it.
+* text=auto eol=lf
+
+# Windows-specific files people may run directly.
+*.ps1   text eol=crlf
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+*.sln   text eol=crlf
+*.slnx  text eol=crlf
+
+# Binary assets — never touch these.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.wav   binary
+*.mp3   binary
+*.opus  binary
+*.flac  binary
+*.ogg   binary
+*.pswf  binary
+*.psbackup binary
+
+# Keep diffs readable for generated-ish files.
+*.csproj  text eol=lf
+*.xaml    text eol=lf

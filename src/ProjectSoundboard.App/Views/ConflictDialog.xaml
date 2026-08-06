@@ -1,0 +1,54 @@
+<Window x:Class="ProjectSoundboard.App.Views.ConflictDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="File already exists"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        SizeToContent="Height" Width="560"
+        FontFamily="Segoe UI" Foreground="{DynamicResource TextPrimaryBrush}">
+
+    <Border Background="{DynamicResource SurfaceBrush}" CornerRadius="16" Margin="14"
+            BorderBrush="{DynamicResource BorderBrushStrong}" BorderThickness="1"
+            Effect="{DynamicResource PopupShadow}">
+        <StackPanel Margin="26">
+            <TextBlock Text="That file is already there" FontSize="19" FontWeight="SemiBold"/>
+            <TextBlock x:Name="FileNameText" Style="{StaticResource SecondaryText}" Margin="0,7,0,0"
+                       TextWrapping="Wrap"/>
+
+            <Border Style="{StaticResource InlineCard}" Margin="0,16,0,0">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="Existing file" Style="{StaticResource FieldLabel}"/>
+                        <TextBlock x:Name="ExistingSizeText" FontSize="12.5"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Text="New file" Style="{StaticResource FieldLabel}"/>
+                        <TextBlock x:Name="NewSizeText" FontSize="12.5"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <StackPanel Margin="0,18,0,0">
+                <Button Content="Keep both — rename the new file" HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Left" Padding="14,10"
+                        Style="{StaticResource PrimaryButton}" Click="OnKeepBoth"/>
+                <Button Content="Replace the existing file" HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Left" Padding="14,10" Margin="0,8,0,0"
+                        Click="OnReplace"/>
+                <Button Content="Skip this file" HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Left" Padding="14,10" Margin="0,8,0,0"
+                        Click="OnSkip"/>
+            </StackPanel>
+
+            <CheckBox x:Name="ApplyToAll" Content="Do this for every remaining conflict"
+                      Margin="0,18,0,0"/>
+
+            <Button Content="Cancel the import" HorizontalAlignment="Right" Margin="0,18,0,0"
+                    Style="{StaticResource GhostButton}" IsCancel="True" Click="OnCancel"/>
+        </StackPanel>
+    </Border>
+</Window>

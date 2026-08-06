@@ -1,0 +1,55 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>ProjectSoundboard</AssemblyName>
+    <RootNamespace>ProjectSoundboard.App</RootNamespace>
+    <Product>Project Soundboard</Product>
+    <AssemblyTitle>Project Soundboard</AssemblyTitle>
+    <Version>1.0.0</Version>
+    <Company>Project Soundboard</Company>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <!-- Branding assets. Both are optional: with an empty Assets folder the app still builds
+       and falls back to a drawn glyph. Regenerate them with tools/MakeIcons. -->
+  <PropertyGroup Condition="Exists('Assets\app.ico')">
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\*.png" />
+  </ItemGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <Optimize>true</Optimize>
+    <DebugType>embedded</DebugType>
+    <TieredPGO>true</TieredPGO>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      WinForms is referenced only for the tray icon. Its implicit global usings collide with
+      WPF on Control, Color, Brush, Size, DragEventArgs and friends, so drop them and import
+      the two WinForms types we actually use explicitly.
+    -->
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ProjectSoundboard.Core\ProjectSoundboard.Core.csproj" />
+    <ProjectReference Include="..\ProjectSoundboard.Audio\ProjectSoundboard.Audio.csproj" />
+  </ItemGroup>
+
+</Project>

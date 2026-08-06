@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ProjectSoundboard.App/ProjectSoundboard.App.csproj" />
+    <Project Path="src/ProjectSoundboard.Audio/ProjectSoundboard.Audio.csproj" />
+    <Project Path="src/ProjectSoundboard.Core/ProjectSoundboard.Core.csproj" />
+  </Folder>
+</Solution>

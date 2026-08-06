@@ -1,0 +1,24 @@
+<Window x:Class="ProjectSoundboard.App.Views.TextPromptWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        SizeToContent="Height" Width="420" FontFamily="Segoe UI"
+        Foreground="{DynamicResource TextPrimaryBrush}">
+
+    <Border Background="{DynamicResource SurfaceBrush}" CornerRadius="14" Padding="22"
+            BorderBrush="{DynamicResource BorderBrushStrong}" BorderThickness="1"
+            Margin="12" Effect="{DynamicResource PopupShadow}">
+        <StackPanel>
+            <TextBlock x:Name="TitleText" FontSize="16" FontWeight="SemiBold"/>
+            <TextBlock x:Name="LabelText" Style="{StaticResource FieldLabel}" Margin="0,14,0,5"/>
+            <TextBox x:Name="Input" FontSize="13"/>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
+                <Button Content="Cancel" Width="94" IsCancel="True" Click="OnCancel"/>
+                <Button Content="OK" Width="94" Margin="8,0,0,0" IsDefault="True"
+                        Style="{StaticResource PrimaryButton}" Click="OnAccept"/>
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</Window>
