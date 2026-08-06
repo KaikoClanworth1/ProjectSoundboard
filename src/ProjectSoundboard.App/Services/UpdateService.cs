@@ -215,6 +215,8 @@ public sealed class UpdateService
 
         try
         {
+            // Start from empty so a failed or superseded download cannot pile up.
+            CleanUpStaging();
             Directory.CreateDirectory(AppPaths.UpdateStagingDir);
 
             var zipPath = Path.Combine(AppPaths.UpdateStagingDir, $"{update.TagName}.zip");
@@ -363,6 +365,58 @@ public sealed class UpdateService
             LastError = ex.Message;
             Log.Error("Could not start the update swap", ex);
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Delete anything left in the staging folder.
+    ///
+    /// Applying an update unpacks the new build into Data\updates and then copies it over
+    /// the application. Nothing ever removed that copy afterwards, so every update left
+    /// another few megabytes of a previous version sitting there for good. By the time the
+    /// updated app is running, the copy has already happened and the staged files are dead
+    /// weight.
+    /// </summary>
+    public static void CleanUpStaging()
+    {
+        try
+        {
+            var staging = AppPaths.UpdateStagingDir;
+            if (!Directory.Exists(staging)) return;
+
+            var freed = 0L;
+
+            foreach (var directory in Directory.EnumerateDirectories(staging))
+            {
+                freed += DirectorySize(directory);
+                Directory.Delete(directory, recursive: true);
+            }
+
+            foreach (var file in Directory.EnumerateFiles(staging))
+            {
+                freed += new FileInfo(file).Length;
+                File.Delete(file);
+            }
+
+            if (freed > 0) Log.Info($"Cleared {freed / 1024 / 1024} MB of staged update files.");
+        }
+        catch (Exception ex)
+        {
+            // A locked file just means we try again next launch.
+            Log.Debug($"Could not clear staged updates: {ex.Message}");
+        }
+    }
+
+    private static long DirectorySize(string path)
+    {
+        try
+        {
+            return Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories)
+                .Sum(f => new FileInfo(f).Length);
+        }
+        catch
+        {
+            return 0;
         }
     }
 

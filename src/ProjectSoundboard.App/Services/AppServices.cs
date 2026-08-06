@@ -55,6 +55,9 @@ public sealed class AppServices : IDisposable
         Theme = new ThemeService(Settings);
         Hotkeys = new HotkeyService(Settings);
         Updates = new UpdateService(Settings);
+
+        // If we just came back from an update, the staged copy has served its purpose.
+        UpdateService.CleanUpStaging();
         Images = new ImageCacheService
         {
             BudgetBytes = Math.Max(32, Settings.Settings.Performance.ImageCacheMb) * 1024L * 1024L
