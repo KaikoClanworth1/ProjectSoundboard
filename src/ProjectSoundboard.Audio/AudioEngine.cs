@@ -68,6 +68,15 @@ public sealed class AudioEngine : IDisposable
         get { lock (_gate) return _active.Count > 0; }
     }
 
+    /// <summary>
+    /// True when the virtual microphone and the monitor are the same Windows device, so
+    /// anything sent to both would be heard twice. Surfaced in the audio settings page.
+    /// </summary>
+    public bool OutputsShareDevice =>
+        VirtualMicBus.IsRunning && MonitorBus.IsRunning &&
+        VirtualMicBus.DeviceId is not null &&
+        VirtualMicBus.DeviceId == MonitorBus.DeviceId;
+
     /// <summary>Combined round-trip estimate shown in the audio settings page.</summary>
     public int EstimatedLatencyMs
     {
@@ -242,7 +251,13 @@ public sealed class AudioEngine : IDisposable
         if (target.HasFlag(PlayTarget.VirtualMic) && VirtualMicBus.IsRunning)
             started |= AddVoice(handle, VirtualMicBus, entry.FilePath, settings);
 
-        if (target.HasFlag(PlayTarget.Monitor) && MonitorBus.IsRunning)
+        // If both buses ended up on the same physical device — which is what happens by
+        // default when no virtual cable is installed — sending the sound to both puts two
+        // copies a few milliseconds apart into the same ears. That comb-filters, and the
+        // result is the hollow, "playing in a cave" sound. One copy is enough.
+        var wouldDoubleUp = started && OutputsShareDevice;
+
+        if (target.HasFlag(PlayTarget.Monitor) && MonitorBus.IsRunning && !wouldDoubleUp)
             started |= AddVoice(handle, MonitorBus, entry.FilePath, settings);
 
         if (!started)

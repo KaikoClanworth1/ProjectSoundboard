@@ -107,6 +107,12 @@ public sealed class PlaybackHandle
         foreach (var v in Voices) v.Restart();
     }
 
+    /// <summary>Scrub to a position. Safe to call as fast as the mouse moves.</summary>
+    public void Seek(double seconds)
+    {
+        foreach (var v in Voices) v.RequestSeek(seconds);
+    }
+
     public void SetVolume(float volume)
     {
         foreach (var v in Voices) v.SetVolume(volume);

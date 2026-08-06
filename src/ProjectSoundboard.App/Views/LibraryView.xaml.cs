@@ -31,15 +31,67 @@ public partial class LibraryView : UserControl
 
     private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
-        if (_viewModel is not null) _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+        if (_viewModel is not null)
+        {
+            _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+            _viewModel.ScrollToTopRequested -= OnScrollToTopRequested;
+            _viewModel.ResultsRefreshing -= OnResultsRefreshing;
+            _viewModel.ResultsRefreshed -= OnResultsRefreshed;
+        }
 
         _viewModel = DataContext as MainViewModel;
 
         if (_viewModel is not null)
         {
             _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+            _viewModel.ScrollToTopRequested += OnScrollToTopRequested;
+            _viewModel.ResultsRefreshing += OnResultsRefreshing;
+            _viewModel.ResultsRefreshed += OnResultsRefreshed;
             ApplyViewMode();
         }
+    }
+
+    private double _savedScrollOffset;
+
+    private void OnResultsRefreshing(object? sender, EventArgs e) =>
+        _savedScrollOffset = FindScrollViewer(SoundList)?.VerticalOffset ?? 0;
+
+    /// <summary>
+    /// Put the user back where they were. Rebuilding the list clears it first, and a
+    /// momentarily empty list has no extent, so the scroll offset gets clamped to zero —
+    /// which is why editing a sound used to fling you back to the top.
+    /// </summary>
+    private void OnResultsRefreshed(object? sender, EventArgs e)
+    {
+        if (_savedScrollOffset <= 0) return;
+
+        var offset = _savedScrollOffset;
+
+        // Queued behind layout so the items exist and the extent is real again.
+        Dispatcher.BeginInvoke(() => FindScrollViewer(SoundList)?.ScrollToVerticalOffset(offset),
+            System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
+    private void OnScrollToTopRequested(object? sender, EventArgs e)
+    {
+        // Queued after the restore above, so a genuine query change still wins.
+        _savedScrollOffset = 0;
+
+        Dispatcher.BeginInvoke(() => FindScrollViewer(SoundList)?.ScrollToVerticalOffset(0),
+            System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
+    private static ScrollViewer? FindScrollViewer(DependencyObject root)
+    {
+        if (root is ScrollViewer viewer) return viewer;
+
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var found = FindScrollViewer(VisualTreeHelper.GetChild(root, i));
+            if (found is not null) return found;
+        }
+
+        return null;
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)

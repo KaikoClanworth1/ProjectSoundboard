@@ -36,33 +36,48 @@
             </Grid>
         </DataTemplate>
 
+        <!--
+            A ContextMenu is hosted in its own popup, so it is not inside this UserControl's
+            visual tree and RelativeSource AncestorType=UserControl can never resolve from
+            here. Every command has to be reached through PlacementTarget instead: each tile
+            carries the page view model in its Tag, and its DataContext is the sound itself.
+        -->
         <ContextMenu x:Key="SoundContextMenu">
+            <ContextMenu.Resources>
+                <Style TargetType="MenuItem">
+                    <Setter Property="CommandParameter"
+                            Value="{Binding PlacementTarget.DataContext,
+                                    RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                </Style>
+            </ContextMenu.Resources>
+
             <MenuItem Header="Play" InputGestureText="Click"
-                      Command="{Binding DataContext.PlayCommand,
-                                RelativeSource={RelativeSource AncestorType=UserControl}}"
-                      CommandParameter="{Binding}"/>
+                      Command="{Binding PlacementTarget.Tag.PlayCommand,
+                                RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
             <MenuItem Header="Stop this sound"
-                      Command="{Binding DataContext.StopSoundCommand,
-                                RelativeSource={RelativeSource AncestorType=UserControl}}"
-                      CommandParameter="{Binding}"/>
+                      Command="{Binding PlacementTarget.Tag.StopSoundCommand,
+                                RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
             <Separator Background="{DynamicResource BorderBrushSoft}" Height="1" Margin="6,4"/>
             <MenuItem Header="Add to / remove from favourites"
-                      Command="{Binding DataContext.ToggleFavoriteCommand,
-                                RelativeSource={RelativeSource AncestorType=UserControl}}"
-                      CommandParameter="{Binding}"/>
+                      Command="{Binding PlacementTarget.Tag.ToggleFavoriteCommand,
+                                RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
             <MenuItem Header="Assign a hotkey…"
-                      Command="{Binding DataContext.AssignHotkeyCommand,
-                                RelativeSource={RelativeSource AncestorType=UserControl}}"
-                      CommandParameter="{Binding}"/>
-            <MenuItem Header="Open file location"
-                      Command="{Binding DataContext.OpenFileLocationCommand,
-                                RelativeSource={RelativeSource AncestorType=UserControl}}"
-                      CommandParameter="{Binding}"/>
+                      Command="{Binding PlacementTarget.Tag.AssignHotkeyCommand,
+                                RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
             <Separator Background="{DynamicResource BorderBrushSoft}" Height="1" Margin="6,4"/>
+            <MenuItem Header="Move to group…"
+                      Command="{Binding PlacementTarget.Tag.MoveToGroupCommand,
+                                RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+            <MenuItem Header="Remove from group"
+                      Command="{Binding PlacementTarget.Tag.RemoveFromGroupCommand,
+                                RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+            <Separator Background="{DynamicResource BorderBrushSoft}" Height="1" Margin="6,4"/>
+            <MenuItem Header="Open file location"
+                      Command="{Binding PlacementTarget.Tag.OpenFileLocationCommand,
+                                RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
             <MenuItem Header="Remove from library"
-                      Command="{Binding DataContext.RemoveFromLibraryCommand,
-                                RelativeSource={RelativeSource AncestorType=UserControl}}"
-                      CommandParameter="{Binding}"/>
+                      Command="{Binding PlacementTarget.Tag.RemoveFromLibraryCommand,
+                                RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
         </ContextMenu>
 
         <!-- ================================================================ -->
@@ -73,6 +88,7 @@
                     Background="{DynamicResource SurfaceBrush}"
                     BorderBrush="{DynamicResource BorderBrushSoft}" BorderThickness="1"
                     ContextMenu="{StaticResource SoundContextMenu}"
+                    Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=UserControl}}"
                     ToolTipService.InitialShowDelay="600">
                 <Border.ToolTip>
                     <StackPanel MaxWidth="330">
@@ -146,7 +162,8 @@
             <Border x:Name="Root" Margin="4,3" CornerRadius="9" Padding="8,6"
                     Background="{DynamicResource SurfaceBrush}"
                     BorderBrush="{DynamicResource BorderBrushSoft}" BorderThickness="1"
-                    ContextMenu="{StaticResource SoundContextMenu}">
+                    ContextMenu="{StaticResource SoundContextMenu}"
+                    Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=UserControl}}">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
@@ -181,7 +198,8 @@
         <!-- ================================================================ -->
         <DataTemplate x:Key="ListRow">
             <Border x:Name="Root" Padding="10,7" CornerRadius="8" Margin="4,1"
-                    Background="Transparent" ContextMenu="{StaticResource SoundContextMenu}">
+                    Background="Transparent" ContextMenu="{StaticResource SoundContextMenu}"
+                    Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=UserControl}}">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>

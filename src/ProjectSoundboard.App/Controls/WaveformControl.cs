@@ -65,8 +65,13 @@ public sealed class WaveformControl : Control
         set => SetValue(IsLoadingProperty, value);
     }
 
-    /// <summary>Raised with a 0..1 position when the user clicks the waveform.</summary>
+    /// <summary>Raised with a 0..1 position as the user clicks or drags along the waveform.</summary>
     public event EventHandler<double>? Seeked;
+
+    /// <summary>Raised when a drag finishes, so the caller can settle playback state.</summary>
+    public event EventHandler? ScrubCompleted;
+
+    private bool _scrubbing;
 
     public WaveformControl()
     {
@@ -80,10 +85,42 @@ public sealed class WaveformControl : Control
         base.OnMouseLeftButtonDown(e);
         if (ActualWidth <= 0) return;
 
-        var position = Math.Clamp(e.GetPosition(this).X / ActualWidth, 0, 1);
-        Seeked?.Invoke(this, position);
+        _scrubbing = true;
+        CaptureMouse();
+        RaiseSeek(e.GetPosition(this).X);
         e.Handled = true;
     }
+
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        base.OnMouseMove(e);
+        if (!_scrubbing || ActualWidth <= 0) return;
+
+        // Dragging scrubs continuously. Seeks are queued and applied on the audio thread,
+        // so firing one per mouse move is safe however fast the pointer moves.
+        RaiseSeek(e.GetPosition(this).X);
+        e.Handled = true;
+    }
+
+    protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
+    {
+        base.OnMouseLeftButtonUp(e);
+        if (!_scrubbing) return;
+
+        _scrubbing = false;
+        ReleaseMouseCapture();
+        ScrubCompleted?.Invoke(this, EventArgs.Empty);
+        e.Handled = true;
+    }
+
+    protected override void OnLostMouseCapture(MouseEventArgs e)
+    {
+        base.OnLostMouseCapture(e);
+        _scrubbing = false;
+    }
+
+    private void RaiseSeek(double x) =>
+        Seeked?.Invoke(this, Math.Clamp(x / ActualWidth, 0, 1));
 
     protected override void OnRender(DrawingContext dc)
     {

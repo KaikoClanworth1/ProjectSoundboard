@@ -686,6 +686,14 @@ public sealed class LibraryService : IDisposable
         LibraryChanged?.Invoke(this, EventArgs.Empty);
     }
 
+    /// <summary>
+    /// Record that a sound's own settings changed, without telling the UI to rebuild its
+    /// list. Volume, speed, fades and the like affect nothing about which sounds are shown
+    /// or in what order, and a slider drag fires this on every mouse move — re-filtering
+    /// the whole library each time is what made those sliders crawl.
+    /// </summary>
+    public void MarkMetadataDirty() => MarkDirty();
+
     // ---- groups -----------------------------------------------------------
 
     public SoundGroup CreateGroup(string name, string? parentId = null)

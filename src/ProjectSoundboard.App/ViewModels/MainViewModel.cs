@@ -61,6 +61,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         {
             _searchDebounce.Stop();
             RefreshResults();
+            RequestScrollToTop();
         };
 
         _meterTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
@@ -87,6 +88,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public PropertiesViewModel Properties { get; }
 
     public AppServices Services => _services;
+
+    /// <summary>Shown next to the title, so a bug report always carries a version with it.</summary>
+    public string VersionText => "v" + UpdateService.CurrentVersion.ToString(3);
 
     // -----------------------------------------------------------------------
     // Navigation
@@ -161,6 +165,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private bool _isEmptyLibrary;
 
+    /// <summary>
+    /// Raised only when the *query* changes, so the list should genuinely start from the
+    /// top. Editing a sound refreshes the same list in place and must keep your position.
+    /// </summary>
+    public event EventHandler? ScrollToTopRequested;
+
+    private void RequestScrollToTop() => ScrollToTopRequested?.Invoke(this, EventArgs.Empty);
+
     partial void OnSearchTextChanged(string value)
     {
         if (_suppressSearch) return;
@@ -172,9 +184,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         Breadcrumb = BuildBreadcrumb(value);
         RefreshResults();
+        RequestScrollToTop();
     }
 
-    partial void OnSortModeChanged(SortMode value) => RefreshResults();
+    partial void OnSortModeChanged(SortMode value)
+    {
+        RefreshResults();
+        RequestScrollToTop();
+    }
 
     partial void OnSelectedSoundChanged(SoundViewModel? oldValue, SoundViewModel? newValue)
     {
@@ -317,9 +334,20 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>
+    /// Raised either side of a results rebuild. The view uses them to hold the scroll
+    /// position: rebuilding empties the collection first, and an empty list has no extent
+    /// to scroll within, so the offset would otherwise be clamped away to zero.
+    /// </summary>
+    public event EventHandler? ResultsRefreshing;
+
+    public event EventHandler? ResultsRefreshed;
+
     /// <summary>Re-run the current filter and repopulate the results list.</summary>
     public void RefreshResults()
     {
+        ResultsRefreshing?.Invoke(this, EventArgs.Empty);
+
         var node = SelectedNode;
 
         var query = new SearchQuery
@@ -370,6 +398,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(ShowRecentSearches));
         OnPropertyChanged(nameof(EmptyStateTitle));
         OnPropertyChanged(nameof(EmptyStateMessage));
+
+        ResultsRefreshed?.Invoke(this, EventArgs.Empty);
     }
 
     private void SyncRecentSearches()
@@ -817,6 +847,44 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
         _services.Library.DeleteGroup(node.Group);
         BuildTree();
+    }
+
+    /// <summary>Pick a group from a list and move the sound into it.</summary>
+    [RelayCommand]
+    private void MoveToGroup(SoundViewModel? sound)
+    {
+        if (sound is null) return;
+
+        var groups = _services.Library.Groups;
+        if (groups.Count == 0)
+        {
+            StatusMessage = "There are no groups yet — make one with the + button in the sidebar.";
+            return;
+        }
+
+        var dialog = new Views.GroupPickerWindow(groups, sound.Entry.GroupId)
+        {
+            Owner = Application.Current.MainWindow
+        };
+
+        if (dialog.ShowDialog() != true) return;
+
+        AssignToGroup(new[] { sound }, dialog.SelectedGroupId);
+    }
+
+    /// <summary>Take a sound back out of its group without removing it from the library.</summary>
+    [RelayCommand]
+    private void RemoveFromGroup(SoundViewModel? sound)
+    {
+        if (sound is null) return;
+
+        if (sound.Entry.GroupId is null)
+        {
+            StatusMessage = $"'{sound.DisplayName}' is not in a group.";
+            return;
+        }
+
+        AssignToGroup(new[] { sound }, null);
     }
 
     /// <summary>Move sounds into a group — used by drag and drop in the sidebar.</summary>

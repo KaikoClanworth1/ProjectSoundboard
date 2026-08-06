@@ -254,8 +254,11 @@ public sealed class VirtualizingWrapPanel : VirtualizingPanel, IScrollInfo
                 break;
 
             case System.Collections.Specialized.NotifyCollectionChangedAction.Reset:
-                // The list was swapped wholesale (a new search); start again from the top.
-                _offset.Y = 0;
+                // Deliberately keep the scroll position. A Reset arrives for a genuinely new
+                // search *and* for an in-place refresh after editing a sound, and jumping to
+                // the top on the latter loses the user's place. MeasureOverride clamps the
+                // offset if the list got shorter; the view model asks for a scroll to the top
+                // explicitly when the query itself changes.
                 ScrollOwner?.InvalidateScrollInfo();
                 break;
         }

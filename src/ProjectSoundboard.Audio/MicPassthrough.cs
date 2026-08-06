@@ -168,7 +168,9 @@ public sealed class MicPassthrough : IDisposable
                 if (_engine.VirtualMicBus.IsRunning)
                     _engine.VirtualMicBus.AddVoice(_virtualProvider);
 
-                if (mic.MonitorEnabled && _engine.MonitorBus.IsRunning)
+                // Same reasoning as playback: if both buses are the same device, adding the
+                // mic to both would double it up and hollow out your own voice.
+                if (mic.MonitorEnabled && _engine.MonitorBus.IsRunning && !_engine.OutputsShareDevice)
                     _engine.MonitorBus.AddVoice(_monitorProvider);
 
                 DeviceName = device.FriendlyName;

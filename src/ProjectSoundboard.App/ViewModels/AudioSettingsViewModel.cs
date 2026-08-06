@@ -73,6 +73,9 @@ public sealed partial class AudioSettingsViewModel : ObservableObject
     [ObservableProperty] private bool _hasVirtualCable;
     [ObservableProperty] private string? _errorText;
 
+    /// <summary>Both outputs are the same Windows device — see the warning on the page.</summary>
+    [ObservableProperty] private bool _outputsShareDevice;
+
     // ---- virtual cable identity -------------------------------------------
 
     /// <summary>Driver family in use, e.g. "VB-CABLE". Empty when none is installed.</summary>
@@ -432,6 +435,7 @@ public sealed partial class AudioSettingsViewModel : ObservableObject
 
         VirtualMicRunning = engine.VirtualMicBus.IsRunning;
         MonitorRunning = engine.MonitorBus.IsRunning;
+        OutputsShareDevice = engine.OutputsShareDevice;
 
         LatencyText = VirtualMicRunning || MonitorRunning
             ? $"{engine.EstimatedLatencyMs} ms round trip"

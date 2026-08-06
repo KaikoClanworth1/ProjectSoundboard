@@ -147,6 +147,36 @@ public abstract class VoiceBase : ISampleProvider
 
     protected abstract void SeekToStart();
 
+    /// <summary>Frame the caller asked us to jump to, or -1 when there is nothing pending.</summary>
+    private long _pendingSeekFrame = -1;
+
+    /// <summary>
+    /// Ask to jump to a position. The seek is queued and performed on the audio thread
+    /// inside <see cref="Read"/> — decoders are not thread safe, and seeking one from the UI
+    /// thread while the render thread is pulling from it corrupts its state and crashes,
+    /// which is exactly what happened when the waveform was clicked repeatedly.
+    /// </summary>
+    public void RequestSeek(double seconds)
+    {
+        var frame = (long)(Math.Max(0, seconds) * SampleRate);
+        Interlocked.Exchange(ref _pendingSeekFrame, frame);
+    }
+
+    /// <summary>Perform the actual jump. Only ever called on the audio thread.</summary>
+    protected abstract void ApplySeek(long frame);
+
+    private void ApplyPendingSeek()
+    {
+        var frame = Interlocked.Exchange(ref _pendingSeekFrame, -1);
+        if (frame < 0) return;
+
+        ApplySeek(frame);
+
+        // The interpolation window belongs to the old position.
+        _primed = false;
+        _fraction = 0;
+    }
+
     /// <summary>
     /// Fill one frame of source audio. Return false at the end of the (trimmed, possibly
     /// looping) region.
@@ -157,6 +187,8 @@ public abstract class VoiceBase : ISampleProvider
     {
         var framesWanted = count / ChannelCount;
         var written = 0;
+
+        ApplyPendingSeek();
 
         while (written < framesWanted)
         {

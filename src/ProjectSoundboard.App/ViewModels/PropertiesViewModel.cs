@@ -146,25 +146,35 @@ public sealed partial class PropertiesViewModel : ObservableObject, IDisposable
 
     // ---- property change plumbing ----------------------------------------
 
-    private void Apply(Action<SoundEntry> mutate)
+    /// <summary>
+    /// Apply an edit to the selected sound.
+    ///
+    /// <paramref name="affectsList"/> should only be true for things that change which
+    /// sounds appear or in what order — the name, tags or group. Everything else skips the
+    /// library-wide refresh, which for a large library is the difference between a slider
+    /// that glides and one that stutters and throws you back to the top of the page.
+    /// </summary>
+    private void Apply(Action<SoundEntry> mutate, bool affectsList = false, bool refreshTile = true)
     {
         if (_loading || Sound is null) return;
 
         mutate(Sound.Entry);
-        _services.Library.NotifyChanged();
-        Sound.RefreshAll();
+
+        if (affectsList) _services.Library.NotifyChanged();
+        else _services.Library.MarkMetadataDirty();
+
+        if (refreshTile) Sound.RefreshAll();
     }
+
+    // ---- edits that change what the list shows -----------------------------
 
     partial void OnDisplayNameChanged(string value)
     {
         Apply(e => e.CustomName = string.IsNullOrWhiteSpace(value) ||
                                   value == e.OriginalNameWithoutExtension
             ? null
-            : value.Trim());
+            : value.Trim(), affectsList: true);
     }
-
-    partial void OnEmojiChanged(string? value) =>
-        Apply(e => e.Emoji = string.IsNullOrWhiteSpace(value) ? null : value.Trim());
 
     partial void OnTagsTextChanged(string value)
     {
@@ -174,33 +184,46 @@ public sealed partial class PropertiesViewModel : ObservableObject, IDisposable
             e.Tags.AddRange(value
                 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Distinct(StringComparer.OrdinalIgnoreCase));
-        });
+        }, affectsList: true);
     }
 
-    partial void OnSelectedGroupIdChanged(string? value) => Apply(e => e.GroupId = value);
+    partial void OnSelectedGroupIdChanged(string? value) =>
+        Apply(e => e.GroupId = value, affectsList: true);
+
+    // ---- edits that only affect this sound's tile --------------------------
+
+    partial void OnEmojiChanged(string? value) =>
+        Apply(e => e.Emoji = string.IsNullOrWhiteSpace(value) ? null : value.Trim());
+
+    // ---- playback settings: invisible to the list, so nothing is rebuilt ----
 
     partial void OnVolumeChanged(float value)
     {
-        Apply(e => e.Volume = value);
+        Apply(e => e.Volume = value, refreshTile: false);
         _preview?.SetVolume(value);
     }
 
     partial void OnSpeedChanged(float value)
     {
-        Apply(e => e.Speed = value);
+        Apply(e => e.Speed = value, refreshTile: false);
         _preview?.SetSpeed(value);
     }
 
-    partial void OnLoopChanged(bool value) => Apply(e => e.Loop = value);
-    partial void OnFadeInMsChanged(int value) => Apply(e => e.FadeInMs = Math.Max(0, value));
-    partial void OnFadeOutMsChanged(int value) => Apply(e => e.FadeOutMs = Math.Max(0, value));
-    partial void OnNormalizeChanged(bool value) => Apply(e => e.Normalize = value);
+    partial void OnLoopChanged(bool value) => Apply(e => e.Loop = value, refreshTile: false);
+
+    partial void OnFadeInMsChanged(int value) =>
+        Apply(e => e.FadeInMs = Math.Max(0, value), refreshTile: false);
+
+    partial void OnFadeOutMsChanged(int value) =>
+        Apply(e => e.FadeOutMs = Math.Max(0, value), refreshTile: false);
+
+    partial void OnNormalizeChanged(bool value) => Apply(e => e.Normalize = value, refreshTile: false);
 
     partial void OnTrimStartSecondsChanged(double value) =>
-        Apply(e => e.TrimStartMs = (int)Math.Max(0, value * 1000));
+        Apply(e => e.TrimStartMs = (int)Math.Max(0, value * 1000), refreshTile: false);
 
     partial void OnTrimEndSecondsChanged(double value) =>
-        Apply(e => e.TrimEndMs = (int)Math.Max(0, value * 1000));
+        Apply(e => e.TrimEndMs = (int)Math.Max(0, value * 1000), refreshTile: false);
 
     // ---- commands ---------------------------------------------------------
 
@@ -442,36 +465,66 @@ public sealed partial class PropertiesViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// Called by the waveform control when the user clicks it. Seeks whatever is currently
-    /// playing this sound — the preview or a normal trigger — and starts it from that point
-    /// if nothing is playing, which is what clicking a waveform is expected to do.
+    /// Seeking a compressed stream is not free — the decoder has to re-sync and refill.
+    /// A drag produces one of these per mouse move, and honouring every one leaves the
+    /// decoder permanently behind, so the audio never actually plays. The playhead still
+    /// follows the pointer; only the audio seek is rate limited, with an exact one on release.
     /// </summary>
-    public void SeekTo(double fraction)
+    private DateTime _lastSeekUtc = DateTime.MinValue;
+
+    private static readonly TimeSpan SeekThrottle = TimeSpan.FromMilliseconds(120);
+
+    /// <summary>Called when a scrub drag ends, to land exactly where the user let go.</summary>
+    public void EndScrub()
+    {
+        if (_pendingScrubFraction is not { } fraction) return;
+
+        _pendingScrubFraction = null;
+        _lastSeekUtc = DateTime.MinValue;
+        SeekTo(fraction);
+    }
+
+    private double? _pendingScrubFraction;
+
+    /// <summary>
+    /// Called by the waveform control when the user clicks or drags it. Seeks whatever is
+    /// currently playing this sound — the preview or a normal trigger — and starts it from
+    /// that point if nothing is playing.
+    /// </summary>
+    public void SeekTo(double fraction, bool isScrubbing = false)
+    {
+        if (isScrubbing)
+        {
+            // Always move the playhead so the drag feels attached to the pointer.
+            Progress = Math.Clamp(fraction, 0, 1);
+            _pendingScrubFraction = fraction;
+
+            if (DateTime.UtcNow - _lastSeekUtc < SeekThrottle) return;
+            _pendingScrubFraction = null;
+        }
+
+        _lastSeekUtc = DateTime.UtcNow;
+        SeekCore(fraction);
+    }
+
+    private void SeekCore(double fraction)
     {
         if (Sound is null) return;
 
-        var handle = _preview
-                     ?? _services.Engine.Active.FirstOrDefault(h => h.SoundId == Sound.Id);
+        var handle = _preview is { IsCompleted: false } ? _preview : null;
+        handle ??= _services.Engine.Active.FirstOrDefault(h => h.SoundId == Sound.Id && !h.IsCompleted);
 
-        if (handle is null || handle.IsCompleted)
+        if (handle is null)
         {
             // Nothing playing: start a preview so the click still does something useful.
+            // Reusing any live handle above is what stops a rapid drag spawning a new
+            // preview per mouse move.
             _preview = _services.Engine.Preview(Sound.Entry);
             handle = _preview;
             if (handle is null) return;
         }
 
-        var seconds = fraction * Sound.DurationSeconds;
-
-        foreach (var voice in handle.Voices)
-        {
-            switch (voice)
-            {
-                case CachedVoice cached: cached.Seek(seconds); break;
-                case StreamingVoice streaming: streaming.Seek(seconds); break;
-            }
-        }
-
+        handle.Seek(fraction * Sound.DurationSeconds);
         Progress = Math.Clamp(fraction, 0, 1);
     }
 

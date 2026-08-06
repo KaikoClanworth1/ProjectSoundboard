@@ -100,6 +100,27 @@
                     </StackPanel>
                 </Border>
 
+                <!-- Both outputs on one device: sounds would be heard twice -->
+                <Border Style="{StaticResource Card}" Margin="0,18,0,0"
+                        BorderBrush="{DynamicResource WarningBrush}" BorderThickness="1.5"
+                        Visibility="{Binding OutputsShareDevice,
+                                     Converter={StaticResource BoolToVisibility}}">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE7BA;" FontFamily="Segoe MDL2 Assets" FontSize="15"
+                                       Foreground="{DynamicResource WarningBrush}" VerticalAlignment="Center"/>
+                            <TextBlock Text="Both outputs are the same device" FontWeight="SemiBold"
+                                       FontSize="14.5" Margin="9,0,0,0" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <TextBlock Style="{StaticResource SecondaryText}" TextWrapping="Wrap" Margin="0,9,0,0"
+                                   HorizontalAlignment="Left" MaxWidth="820"
+                                   Text="The virtual microphone and your headphones are set to the same Windows device. Sounds are being played once instead of twice to avoid the hollow, echoey “in a cave” effect that two overlapping copies produce."/>
+                        <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,8,0,0"
+                                   HorizontalAlignment="Left" MaxWidth="820"
+                                   Text="This is what happens when no virtual audio cable is installed. Install one and set it as the virtual microphone, and your friends will hear the soundboard while you keep your headphones for yourself."/>
+                    </StackPanel>
+                </Border>
+
                 <!-- ======================================================= -->
                 <!-- Devices                                                  -->
                 <!-- ======================================================= -->

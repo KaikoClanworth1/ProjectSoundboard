@@ -87,11 +87,24 @@ public sealed class ThemeService
     /// Re-map the three status colours for colour vision deficiencies. Shape and text
     /// always carry the same information as well, this just widens the gap.
     /// </summary>
+    private static readonly string[] StatusBrushKeys =
+    {
+        "SuccessBrush", "WarningBrush", "DangerBrush",
+        "MeterLowBrush", "MeterMidBrush", "MeterHighBrush"
+    };
+
     private static void ApplyColorBlindAdjustments(ColorBlindMode mode)
     {
-        if (mode == ColorBlindMode.None) return;
-
         var resources = Application.Current.Resources;
+
+        if (mode == ColorBlindMode.None)
+        {
+            // These are set directly on Application.Resources, which takes precedence over
+            // the merged palette. Simply re-applying the theme does not undo them — they
+            // have to be removed so lookups fall through to the palette again.
+            foreach (var key in StatusBrushKeys) resources.Remove(key);
+            return;
+        }
 
         (Color ok, Color warn, Color bad) = mode switch
         {

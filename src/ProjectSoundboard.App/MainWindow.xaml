@@ -62,7 +62,14 @@
                         </Grid>
                         <TextBlock Text="Project Soundboard" Margin="10,0,0,0" FontWeight="SemiBold"
                                    FontSize="12.5" VerticalAlignment="Center"/>
-                        <TextBlock Text="{Binding Breadcrumb}" Margin="16,0,0,0" VerticalAlignment="Center"
+                        <Border Background="{DynamicResource InputBrush}" CornerRadius="6" Padding="6,1"
+                                Margin="8,0,0,0" VerticalAlignment="Center"
+                                BorderBrush="{DynamicResource BorderBrushSoft}" BorderThickness="1">
+                            <TextBlock Text="{Binding VersionText}" FontSize="10.5"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       AutomationProperties.Name="Application version"/>
+                        </Border>
+                        <TextBlock Text="{Binding Breadcrumb}" Margin="14,0,0,0" VerticalAlignment="Center"
                                    Foreground="{DynamicResource TextMutedBrush}" FontSize="11.5"
                                    TextTrimming="CharacterEllipsis" MaxWidth="420"/>
                     </StackPanel>

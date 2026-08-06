@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using ProjectSoundboard.App.ViewModels;
 using ProjectSoundboard.Core.Library;
 
@@ -11,11 +12,15 @@ public partial class PropertiesPanel : UserControl
     {
         InitializeComponent();
         Waveform.Seeked += OnWaveformSeeked;
+        Waveform.ScrubCompleted += OnScrubCompleted;
     }
 
     private PropertiesViewModel? ViewModel => DataContext as PropertiesViewModel;
 
-    private void OnWaveformSeeked(object? sender, double fraction) => ViewModel?.SeekTo(fraction);
+    private void OnWaveformSeeked(object? sender, double fraction) =>
+        ViewModel?.SeekTo(fraction, isScrubbing: Mouse.LeftButton == MouseButtonState.Pressed);
+
+    private void OnScrubCompleted(object? sender, EventArgs e) => ViewModel?.EndScrub();
 
     // Dropping an image straight onto the panel is the fastest way to give a sound artwork.
     protected override void OnDragOver(DragEventArgs e)

@@ -54,10 +54,7 @@ public sealed class CachedVoice : VoiceBase
         return true;
     }
 
-    /// <summary>Jump to an absolute position in the file (used by the waveform scrubber).</summary>
-    public void Seek(double seconds)
-    {
-        var frame = (long)(seconds * _sound.SampleRate);
+    /// <summary>Called on the audio thread by <see cref="VoiceBase.RequestSeek"/>.</summary>
+    protected override void ApplySeek(long frame) =>
         _frame = Math.Clamp(frame, _startFrame, _endFrame);
-    }
 }
