@@ -18,6 +18,7 @@ public sealed class SettingsService
     {
         AppPaths.EnsureCreated();
         Settings = JsonStore.Load(AppPaths.SettingsFile, CreateDefaults);
+        Migrate();
         Log.Verbose = Settings.Advanced.VerboseLogging;
 
         if (!string.IsNullOrWhiteSpace(Settings.Advanced.CustomDataPath))
@@ -53,6 +54,30 @@ public sealed class SettingsService
 
     /// <summary>Notify listeners without writing to disk (used for live audio tweaks).</summary>
     public void NotifyChanged() => Changed?.Invoke(this, EventArgs.Empty);
+
+    /// <summary>
+    /// Bring an older settings file up to date. Only defaults that were never a deliberate
+    /// choice are changed — anything the user actually picked is left alone.
+    /// </summary>
+    private void Migrate()
+    {
+        if (Settings.SchemaVersion >= AppSettings.CurrentSchemaVersion) return;
+
+        var from = Settings.SchemaVersion;
+
+        if (from < 2)
+        {
+            // Minimising used to hide the window into the tray, which meant it disappeared
+            // from the taskbar. That was the shipped default rather than anything anyone
+            // asked for, so clear it; the option is still there for whoever wants it.
+            Settings.General.MinimizeToTray = false;
+        }
+
+        Settings.SchemaVersion = AppSettings.CurrentSchemaVersion;
+        Save();
+
+        Log.Info($"Settings migrated from schema {from} to {AppSettings.CurrentSchemaVersion}.");
+    }
 
     private static AppSettings CreateDefaults()
     {

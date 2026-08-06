@@ -69,11 +69,15 @@ public partial class App : Application
         MainWindow = main;
         ShutdownMode = ShutdownMode.OnMainWindowClose;
 
-        if (_services.Settings.Settings.General.StartMinimized &&
-            _services.Settings.Settings.General.MinimizeToTray)
+        var general = _services.Settings.Settings.General;
+
+        if (general.StartMinimized)
         {
+            // Minimised means on the taskbar, unless the user specifically wants the tray.
+            main.WindowState = WindowState.Minimized;
             main.Show();
-            main.Hide();
+
+            if (general.MinimizeToTray) main.Hide();
         }
         else
         {

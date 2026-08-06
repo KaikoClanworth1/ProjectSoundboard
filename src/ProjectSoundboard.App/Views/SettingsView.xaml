@@ -106,13 +106,17 @@
                                 </StackPanel>
                                 <StackPanel Style="{StaticResource SettingRow}">
                                     <ToggleButton Style="{StaticResource Switch}" IsChecked="{Binding StartMinimized}"/>
-                                    <TextBlock Text="Start minimised to the tray" Margin="9,0,0,0"
+                                    <TextBlock Text="Start minimised" Margin="9,0,0,0"
                                                VerticalAlignment="Center"/>
                                 </StackPanel>
                                 <StackPanel Style="{StaticResource SettingRow}">
                                     <ToggleButton Style="{StaticResource Switch}" IsChecked="{Binding MinimizeToTray}"/>
-                                    <TextBlock Text="Minimise to the tray instead of the taskbar" Margin="9,0,0,0"
-                                               VerticalAlignment="Center"/>
+                                    <StackPanel Margin="9,0,0,0">
+                                        <TextBlock Text="Hide to the tray when minimised"/>
+                                        <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap"
+                                                   MaxWidth="620"
+                                                   Text="Off by default: minimising puts Project Soundboard on the taskbar like any other program. Turn this on to have it disappear into the tray instead."/>
+                                    </StackPanel>
                                 </StackPanel>
                                 <StackPanel Style="{StaticResource SettingRow}">
                                     <ToggleButton Style="{StaticResource Switch}" IsChecked="{Binding CloseToTray}"/>

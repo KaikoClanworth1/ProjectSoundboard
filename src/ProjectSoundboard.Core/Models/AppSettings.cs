@@ -3,7 +3,14 @@ namespace ProjectSoundboard.Core.Models;
 /// <summary>Root settings object, persisted as settings.json.</summary>
 public sealed class AppSettings
 {
-    public int SchemaVersion { get; set; } = 1;
+    /// <summary>
+    /// Bumped when a default changes in a way existing installs should pick up.
+    /// See <c>SettingsService.Migrate</c>.
+    /// </summary>
+    public const int CurrentSchemaVersion = 2;
+
+    public int SchemaVersion { get; set; } = CurrentSchemaVersion;
+
     public bool SetupCompleted { get; set; }
 
     public GeneralSettings General { get; set; } = new();
@@ -25,7 +32,14 @@ public sealed class GeneralSettings
 {
     public bool StartWithWindows { get; set; }
     public bool StartMinimized { get; set; }
-    public bool MinimizeToTray { get; set; } = true;
+
+    /// <summary>
+    /// Hide the window entirely when minimised, leaving only the tray icon. Off by default:
+    /// minimising should put the app on the taskbar like any other program, and vanishing
+    /// from it is surprising unless you asked for it.
+    /// </summary>
+    public bool MinimizeToTray { get; set; }
+
     public bool CloseToTray { get; set; }
     public bool CheckForUpdates { get; set; } = true;
     public bool ConfirmOnDelete { get; set; } = true;
