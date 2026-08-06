@@ -18,6 +18,13 @@ public partial class SetupWizardWindow : Window
         _viewModel = new SetupWizardViewModel(AppServices.Current);
         DataContext = _viewModel;
 
+        if (Branding.Logo is not null)
+        {
+            LogoImage.Source = Branding.Logo;
+            LogoImage.Visibility = Visibility.Visible;
+            LogoFallback.Visibility = Visibility.Collapsed;
+        }
+
         _meterTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(60) };
         _meterTimer.Tick += (_, _) =>
         {

@@ -23,12 +23,16 @@
                 <Grid>
                     <StackPanel>
                         <StackPanel Orientation="Horizontal">
-                            <Border Width="26" Height="26" CornerRadius="8"
-                                    Background="{DynamicResource AccentBrush}">
-                                <TextBlock Text="&#xE767;" FontFamily="Segoe MDL2 Assets" FontSize="13"
-                                           Foreground="{DynamicResource TextOnAccentBrush}"
-                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                            </Border>
+                            <Grid Width="30" Height="30">
+                                <Border x:Name="LogoFallback" CornerRadius="8"
+                                        Background="{DynamicResource AccentBrush}">
+                                    <TextBlock Text="&#xE767;" FontFamily="Segoe MDL2 Assets" FontSize="13"
+                                               Foreground="{DynamicResource TextOnAccentBrush}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                                <Image x:Name="LogoImage" Visibility="Collapsed"
+                                       RenderOptions.BitmapScalingMode="HighQuality"/>
+                            </Grid>
                             <TextBlock Text="Project Soundboard setup" FontWeight="SemiBold" FontSize="14"
                                        Margin="11,0,0,0" VerticalAlignment="Center"/>
                         </StackPanel>

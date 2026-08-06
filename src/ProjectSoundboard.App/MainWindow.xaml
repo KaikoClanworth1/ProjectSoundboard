@@ -49,12 +49,17 @@
                     BorderBrush="{DynamicResource BorderBrushSoft}" BorderThickness="0,0,0,1">
                 <Grid>
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="14,0,0,0">
-                        <Border Width="20" Height="20" CornerRadius="6"
-                                Background="{DynamicResource AccentBrush}" VerticalAlignment="Center">
-                            <TextBlock Text="&#xE767;" FontFamily="Segoe MDL2 Assets" FontSize="11"
-                                       Foreground="{DynamicResource TextOnAccentBrush}"
-                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
+                        <!-- Logo, with a drawn badge behind it for builds that have no artwork. -->
+                        <Grid Width="22" Height="22" VerticalAlignment="Center">
+                            <Border x:Name="LogoFallback" CornerRadius="6"
+                                    Background="{DynamicResource AccentBrush}">
+                                <TextBlock Text="&#xE767;" FontFamily="Segoe MDL2 Assets" FontSize="11"
+                                           Foreground="{DynamicResource TextOnAccentBrush}"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <Image x:Name="LogoImage" Visibility="Collapsed"
+                                   RenderOptions.BitmapScalingMode="HighQuality"/>
+                        </Grid>
                         <TextBlock Text="Project Soundboard" Margin="10,0,0,0" FontWeight="SemiBold"
                                    FontSize="12.5" VerticalAlignment="Center"/>
                         <TextBlock Text="{Binding Breadcrumb}" Margin="16,0,0,0" VerticalAlignment="Center"

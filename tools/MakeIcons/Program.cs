@@ -139,10 +139,16 @@ internal static class Program
         return result;
     }
 
-    /// <summary>Near-white and near-neutral: the flat card the logo was rendered onto.</summary>
+    /// <summary>
+    /// Already transparent, or near-white and near-neutral — the flat card the logo was
+    /// rendered onto. Handling existing alpha means a source that is already cut out passes
+    /// through this step unharmed instead of being treated as opaque white.
+    /// </summary>
     private static bool LooksLikeBackdrop(byte[] pixels, int stride, int x, int y)
     {
         var offset = y * stride + x * 4;
+
+        if (pixels[offset + 3] <= 8) return true;
 
         int b = pixels[offset];
         int g = pixels[offset + 1];

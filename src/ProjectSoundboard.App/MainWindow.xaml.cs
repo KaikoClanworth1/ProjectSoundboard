@@ -33,7 +33,21 @@ public partial class MainWindow : Window
         Loaded += OnLoaded;
 
         ApplyScale();
+        ApplyBranding();
         SetUpTray();
+    }
+
+    /// <summary>
+    /// Swap the drawn placeholder for the real logo when the artwork is present. The window
+    /// and taskbar icons come from the executable's own icon, which WPF picks up for free.
+    /// </summary>
+    private void ApplyBranding()
+    {
+        if (Branding.Logo is null) return;
+
+        LogoImage.Source = Branding.Logo;
+        LogoImage.Visibility = Visibility.Visible;
+        LogoFallback.Visibility = Visibility.Collapsed;
     }
 
     public MainViewModel ViewModel => _viewModel;
@@ -157,9 +171,14 @@ public partial class MainWindow : Window
                 Dispatcher.Invoke(Close);
             });
 
+            // Render the tray icon at whatever size this machine's tray actually uses,
+            // rather than letting Windows downscale a 256 px frame into mush.
+            var trayIcon = Branding.CreateTrayIcon(Forms.SystemInformation.SmallIconSize.Width)
+                           ?? System.Drawing.SystemIcons.Application;
+
             _tray = new Forms.NotifyIcon
             {
-                Icon = System.Drawing.SystemIcons.Application,
+                Icon = trayIcon,
                 Text = "Project Soundboard",
                 Visible = true,
                 ContextMenuStrip = menu
