@@ -34,15 +34,26 @@ public sealed class PlaybackHandle
         get { lock (_gate) return _voices.Count > 0 && _voices.All(v => v.IsPaused); }
     }
 
-    public double PositionSeconds
+    /// <summary>
+    /// Report from a voice that is still running. If one output bus was switched off
+    /// mid-playback its voice is abandoned and frozen, and reading the position from that
+    /// one would make the progress bar stick while the sound is still audible elsewhere.
+    /// </summary>
+    private VoiceBase? ReferenceVoice
     {
-        get { lock (_gate) return _voices.Count == 0 ? 0 : _voices[0].PositionSeconds; }
+        get
+        {
+            lock (_gate)
+            {
+                if (_voices.Count == 0) return null;
+                return _voices.FirstOrDefault(v => !v.IsFinished) ?? _voices[0];
+            }
+        }
     }
 
-    public double LengthSeconds
-    {
-        get { lock (_gate) return _voices.Count == 0 ? 0 : _voices[0].LengthSeconds; }
-    }
+    public double PositionSeconds => ReferenceVoice?.PositionSeconds ?? 0;
+
+    public double LengthSeconds => ReferenceVoice?.LengthSeconds ?? 0;
 
     public double Progress
     {

@@ -2,6 +2,7 @@ using NAudio.CoreAudioApi;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 using ProjectSoundboard.Audio.Dsp;
+using ProjectSoundboard.Audio.Playback;
 using ProjectSoundboard.Core.Storage;
 
 namespace ProjectSoundboard.Audio;
@@ -70,6 +71,9 @@ public sealed class OutputBus : IDisposable
     private MixingSampleProvider? _mixer;
     private MasterChain? _chain;
     private MMDevice? _device;
+
+    /// <summary>Everything currently mixed in, so it can be released if the bus goes away.</summary>
+    private readonly HashSet<ISampleProvider> _voices = new();
 
     public OutputBus(string name) => Name = name;
 
@@ -146,6 +150,7 @@ public sealed class OutputBus : IDisposable
                 LatencyMs = Math.Clamp(latencyMs, 2, 500);
 
                 _mixer = new MixingSampleProvider(Format) { ReadFully = true };
+                _mixer.MixerInputEnded += OnMixerInputEnded;
                 _chain = new MasterChain(_mixer) { Volume = _volume, Muted = _muted };
 
                 // Shared mode on purpose: exclusive mode would lock other applications out
@@ -188,6 +193,7 @@ public sealed class OutputBus : IDisposable
         {
             if (_mixer is null) return;
             _mixer.AddMixerInput(voice);
+            _voices.Add(voice);
         }
     }
 
@@ -195,6 +201,7 @@ public sealed class OutputBus : IDisposable
     {
         lock (_gate)
         {
+            _voices.Remove(voice);
             try { _mixer?.RemoveMixerInput(voice); }
             catch { /* already removed by the mixer when it ended */ }
         }
@@ -202,8 +209,31 @@ public sealed class OutputBus : IDisposable
 
     public void RemoveAllVoices()
     {
-        lock (_gate) _mixer?.RemoveAllMixerInputs();
+        lock (_gate)
+        {
+            _voices.Clear();
+            _mixer?.RemoveAllMixerInputs();
+        }
     }
+
+    /// <summary>The mixer drops inputs that finish on their own; keep our list in step.</summary>
+    private void OnMixerInputEnded(object? sender, SampleProviderEventArgs e)
+    {
+        lock (_gate) _voices.Remove(e.SampleProvider);
+    }
+
+    /// <summary>
+    /// True when the bus is already running exactly this configuration, so there is no
+    /// reason to tear it down. Restarting a bus cuts off whatever it is playing, and the
+    /// user changing an unrelated setting should not silence the sound they are hearing.
+    /// </summary>
+    public bool Matches(string? deviceId, int sampleRate, int channels, int latencyMs) =>
+        IsRunning
+        && DeviceId == deviceId
+        && Format is not null
+        && Format.SampleRate == sampleRate
+        && Format.Channels == channels
+        && LatencyMs == latencyMs;
 
     public void Stop()
     {
@@ -226,6 +256,18 @@ public sealed class OutputBus : IDisposable
     private void CleanUp()
     {
         try { _output?.Dispose(); } catch { /* ignore */ }
+
+        // Nothing will ever read these again, so tell them so. Otherwise the handles that
+        // own them wait forever for a completion that cannot arrive.
+        foreach (var voice in _voices)
+        {
+            if (voice is VoiceBase playable) playable.Abandon();
+        }
+
+        _voices.Clear();
+
+        if (_mixer is not null) _mixer.MixerInputEnded -= OnMixerInputEnded;
+
         _output = null;
         _mixer = null;
         _chain = null;

@@ -32,8 +32,10 @@ public abstract class VoiceBase : ISampleProvider
 
     private double _fraction;
     private bool _primed;
-    private bool _finished;
-    private bool _finishedRaised;
+
+    // Written from the audio thread and from Abandon() on the UI thread.
+    private volatile bool _finished;
+    private int _finishedRaised;
 
     private long _outputFrame;
     private long _fadeInFrames;
@@ -182,14 +184,31 @@ public abstract class VoiceBase : ISampleProvider
             written++;
         }
 
-        if (_finished && !_finishedRaised)
-        {
-            _finishedRaised = true;
-            Finished?.Invoke(this, EventArgs.Empty);
-        }
+        if (_finished) RaiseFinishedOnce();
 
         // Returning fewer samples than asked for is how a mixer input signals completion.
         return _finished ? written * ChannelCount : framesWanted * ChannelCount;
+    }
+
+    /// <summary>
+    /// End the voice because the bus it was playing on went away.
+    ///
+    /// A stopped bus simply stops reading its inputs, so without this the voice would sit
+    /// there un-read forever: <see cref="Finished"/> would never fire, and the handle that
+    /// owns it would never complete — leaving a sound stuck as "playing" that even Stop All
+    /// could not clear.
+    /// </summary>
+    public void Abandon()
+    {
+        _finished = true;
+        RaiseFinishedOnce();
+    }
+
+    private void RaiseFinishedOnce()
+    {
+        // The audio thread and Abandon() can race; only the first one through notifies.
+        if (Interlocked.Exchange(ref _finishedRaised, 1) != 0) return;
+        Finished?.Invoke(this, EventArgs.Empty);
     }
 
     private float CurrentGain()

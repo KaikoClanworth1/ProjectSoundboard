@@ -100,24 +100,24 @@ public sealed class AudioEngine : IDisposable
         Cache.Configure(sampleRate, channels);
         Cache.BudgetBytes = Math.Max(32, perf.ImageCacheMb) * 1024L * 1024L;
 
-        if (audio.VirtualMicEnabled)
-        {
-            var device = _devices.Resolve(audio.VirtualMicDeviceId, DeviceKind.Output);
-            VirtualMicBus.Start(device, sampleRate, channels, latency);
-        }
-        else
-        {
-            VirtualMicBus.Stop();
-        }
+        // Only restart a bus whose configuration actually changed. Starting a bus stops it
+        // first, which kills whatever it is playing — so unconditionally restarting both
+        // meant that turning off the monitor also cut the sound on the virtual mic.
+        ApplyToBus(VirtualMicBus, audio.VirtualMicEnabled, audio.VirtualMicDeviceId);
+        ApplyToBus(MonitorBus, audio.MonitorEnabled, audio.MonitorDeviceId);
 
-        if (audio.MonitorEnabled)
+        void ApplyToBus(OutputBus bus, bool enabled, string? deviceId)
         {
-            var device = _devices.Resolve(audio.MonitorDeviceId, DeviceKind.Output);
-            MonitorBus.Start(device, sampleRate, channels, latency);
-        }
-        else
-        {
-            MonitorBus.Stop();
+            if (!enabled)
+            {
+                bus.Stop();
+                return;
+            }
+
+            var device = _devices.Resolve(deviceId, DeviceKind.Output);
+            if (bus.Matches(device?.ID, sampleRate, channels, latency)) return;
+
+            bus.Start(device, sampleRate, channels, latency);
         }
 
         VirtualMicBus.Volume = audio.VirtualMicVolume * audio.MasterVolume;
