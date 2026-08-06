@@ -615,6 +615,42 @@ public sealed class LibraryService : IDisposable
     /// Rename the underlying file. Only reachable when the user explicitly opts in —
     /// display names never touch the file system.
     /// </summary>
+    /// <summary>
+    /// Turn a display name into something Windows will actually accept as a file name.
+    /// Song titles routinely contain characters a file name cannot ("Who? : Live"), and the
+    /// raw Win32 error for those is impenetrable.
+    /// </summary>
+    public static string MakeSafeFileName(string proposed)
+    {
+        if (string.IsNullOrWhiteSpace(proposed)) return string.Empty;
+
+        var invalid = Path.GetInvalidFileNameChars();
+        var builder = new System.Text.StringBuilder(proposed.Length);
+
+        foreach (var c in proposed)
+        {
+            builder.Append(invalid.Contains(c) ? ' ' : c);
+        }
+
+        // Collapse the gaps left behind, and drop trailing dots and spaces, which Windows
+        // silently strips and then fails to find.
+        var cleaned = string.Join(' ',
+            builder.ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries)).TrimEnd('.', ' ');
+
+        // Device names are reserved whatever the extension.
+        string[] reserved =
+        {
+            "CON", "PRN", "AUX", "NUL",
+            "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+            "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+        };
+
+        if (reserved.Contains(cleaned, StringComparer.OrdinalIgnoreCase)) cleaned = "_" + cleaned;
+
+        // Leave room for the extension and the folder.
+        return cleaned.Length > 200 ? cleaned[..200].TrimEnd('.', ' ') : cleaned;
+    }
+
     public bool RenameFileOnDisk(SoundEntry entry, string newFileNameWithoutExtension, out string? error)
     {
         error = null;
@@ -623,8 +659,45 @@ public sealed class LibraryService : IDisposable
             var dir = Path.GetDirectoryName(entry.FilePath);
             if (dir is null) { error = "Could not resolve the folder."; return false; }
 
+            if (!File.Exists(entry.FilePath))
+            {
+                error = "The original file is no longer there.";
+                return false;
+            }
+
+            var safe = MakeSafeFileName(newFileNameWithoutExtension);
+            if (safe.Length == 0)
+            {
+                error = "That name has no characters Windows can use in a file name.";
+                return false;
+            }
+
             var ext = Path.GetExtension(entry.FilePath);
-            var target = Path.Combine(dir, newFileNameWithoutExtension + ext);
+            var target = Path.Combine(dir, safe + ext);
+
+            // Already called that: nothing to do, and certainly not an error.
+            if (string.Equals(target, entry.FilePath, StringComparison.OrdinalIgnoreCase))
+            {
+                // Unless only the capitalisation differs, which is a real rename on a
+                // case-insensitive file system and needs a bounce through a temp name.
+                if (string.Equals(target, entry.FilePath, StringComparison.Ordinal)) return true;
+
+                var interim = Path.Combine(dir, $"{safe}.{Guid.NewGuid():N}{ext}");
+                File.Move(entry.FilePath, interim);
+                File.Move(interim, target);
+
+                lock (_gate)
+                {
+                    _byPath.Remove(Normalize(entry.FilePath));
+                    entry.FilePath = target;
+                    _byPath[Normalize(target)] = entry;
+                    _dirty = true;
+                }
+
+                Save();
+                LibraryChanged?.Invoke(this, EventArgs.Empty);
+                return true;
+            }
 
             if (File.Exists(target)) { error = "A file with that name already exists."; return false; }
 

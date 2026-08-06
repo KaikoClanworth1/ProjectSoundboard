@@ -439,15 +439,41 @@ public sealed partial class PropertiesViewModel : ObservableObject, IDisposable
             return;
         }
 
-        var name = DisplayName.Trim();
-        if (string.IsNullOrWhiteSpace(name)) return;
+        var extension = Path.GetExtension(Sound.FilePath);
+        var safe = LibraryService.MakeSafeFileName(DisplayName);
+
+        if (safe.Length == 0)
+        {
+            MessageBox.Show(
+                "That display name has no characters Windows can use in a file name, so the " +
+                "file cannot be renamed to it.",
+                "Cannot use that name", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        if (string.Equals(safe + extension, Sound.OriginalFileName, StringComparison.Ordinal))
+        {
+            MessageBox.Show(
+                $"The file is already called “{Sound.OriginalFileName}”, so there is nothing " +
+                "to rename. Change the display name first if you want the file to match it.",
+                "Nothing to change", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        // Show what the file will genuinely end up called, including any characters that
+        // had to be dropped, rather than springing it on them afterwards.
+        var note = safe == DisplayName.Trim()
+            ? string.Empty
+            : "\n\nSome characters are not allowed in file names and have been removed.";
 
         var confirm = MessageBox.Show(
-            $"Rename the file on disk to:\n\n{name}{Path.GetExtension(Sound.FilePath)}\n\n" +
+            $"Rename the file on disk to:\n\n{safe}{extension}{note}\n\n" +
             "This changes the actual file, not just how it is shown here.",
             "Rename file", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
 
         if (confirm != MessageBoxResult.OK) return;
+
+        var name = safe;
 
         if (_services.Library.RenameFileOnDisk(Sound.Entry, name, out var error))
         {
