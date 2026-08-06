@@ -207,6 +207,10 @@ public sealed class LibraryService : IDisposable
 
             ct.ThrowIfCancellationRequested();
 
+            // Groups have to exist before entries can point at them, and creating them from
+            // the parallel loop below would race, so resolve them all up front.
+            var groupByPath = BuildSubfolderGroups(found);
+
             // --- work out what changed -------------------------------------
             List<string> newPaths;
             List<SoundEntry> gone;
@@ -247,7 +251,9 @@ public sealed class LibraryService : IDisposable
                     var entry = new SoundEntry
                     {
                         FilePath = path,
-                        GroupId = folder.DefaultGroupId
+                        GroupId = groupByPath.TryGetValue(path, out var derived)
+                            ? derived
+                            : folder.DefaultGroupId
                     };
 
                     AudioFileMetadataReader.Populate(entry);
@@ -285,6 +291,17 @@ public sealed class LibraryService : IDisposable
                     _data.Sounds.Add(entry);
                     _byPath[key] = entry;
                     _byId[entry.Id] = entry;
+                }
+
+                // Sounds that were already known but have no group yet: file them under the
+                // subfolder they live in. Anything the user placed by hand is left alone.
+                foreach (var (path, groupId) in groupByPath)
+                {
+                    if (!_byPath.TryGetValue(path, out var existing)) continue;
+                    if (existing.GroupId is not null) continue;
+
+                    existing.GroupId = groupId;
+                    _dirty = true;
                 }
 
                 foreach (var entry in gone)
@@ -336,6 +353,102 @@ public sealed class LibraryService : IDisposable
     }
 
     private void Report(ScanProgress progress) => ScanProgressChanged?.Invoke(this, progress);
+
+    /// <summary>
+    /// Work out which group each discovered file belongs in, creating the groups as needed,
+    /// for folders that have "make groups from subfolders" turned on.
+    ///
+    /// Only the first level counts: <c>Root/OST/Series/track.mp3</c> lands in "OST", not in a
+    /// nested "Series". Files sitting directly in the root are left ungrouped.
+    /// </summary>
+    private Dictionary<string, string> BuildSubfolderGroups(
+        IReadOnlyDictionary<string, LibraryFolder> found)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (!found.Values.Any(f => f.GroupFromSubfolders)) return result;
+
+        lock (_gate)
+        {
+            var byName = _data.Groups
+                .Where(g => g.ParentId is null)
+                .GroupBy(g => g.Name, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First().Id, StringComparer.OrdinalIgnoreCase);
+
+            foreach (var (path, folder) in found)
+            {
+                if (!folder.GroupFromSubfolders) continue;
+
+                var name = FirstLevelFolderName(path, folder.Path);
+                if (name is null) continue;
+
+                if (!byName.TryGetValue(name, out var id))
+                {
+                    var group = new SoundGroup { Name = name, SortOrder = _data.Groups.Count };
+                    _data.Groups.Add(group);
+                    byName[name] = id = group.Id;
+                    _dirty = true;
+                }
+
+                result[path] = id;
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>The first folder below <paramref name="rootPath"/>, or null if the file sits in it.</summary>
+    private static string? FirstLevelFolderName(string filePath, string rootPath)
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(filePath);
+            if (dir is null) return null;
+
+            var relative = Path.GetRelativePath(rootPath, dir);
+            if (relative is "." or "") return null;
+            if (relative.StartsWith("..", StringComparison.Ordinal)) return null;
+
+            var first = relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                .FirstOrDefault(p => p.Length > 0);
+
+            return string.IsNullOrWhiteSpace(first) ? null : first;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Drop every sound that lives under <paramref name="folderPath"/> and is not also
+    /// covered by one of the folders still in the library.
+    ///
+    /// The scan cannot do this on its own: it only considers a sound missing if it sits
+    /// under a folder that is still being watched, which is deliberate so a disconnected
+    /// drive does not wipe entries — but it also meant removing a folder left its sounds
+    /// behind forever.
+    /// </summary>
+    public int RemoveSoundsUnder(string folderPath, IEnumerable<string> remainingFolders)
+    {
+        var root = Normalize(folderPath);
+        var keep = remainingFolders.Select(Normalize).ToList();
+
+        List<SoundEntry> doomed;
+
+        lock (_gate)
+        {
+            doomed = _data.Sounds
+                .Where(s => IsUnder(s.FilePath, root) || Normalize(s.FilePath).Equals(root, StringComparison.OrdinalIgnoreCase))
+                .Where(s => !keep.Any(k => IsUnder(s.FilePath, k)))
+                .ToList();
+        }
+
+        if (doomed.Count == 0) return 0;
+
+        RemoveFromLibrary(doomed);
+        Log.Info($"Removed {doomed.Count} sound(s) that lived under {folderPath}.");
+        return doomed.Count;
+    }
 
     private static bool HasUserData(SoundEntry e) =>
         e.HasCustomName || e.IsFavorite || e.PlayCount > 0

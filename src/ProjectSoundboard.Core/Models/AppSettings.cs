@@ -168,6 +168,9 @@ public sealed class LibrarySettings
     public ConflictAction ConflictAction { get; set; } = ConflictAction.Ask;
     public bool PreserveFolderStructureOnImport { get; set; } = true;
     public bool AutoTagFromFolderName { get; set; } = true;
+
+    /// <summary>Default for <see cref="LibraryFolder.GroupFromSubfolders"/> on newly added folders.</summary>
+    public bool GroupFromSubfoldersByDefault { get; set; }
     public bool DetectDuplicatesOnImport { get; set; } = true;
     public bool WatchFolders { get; set; } = true;
     public bool ScanOnStartup { get; set; } = true;

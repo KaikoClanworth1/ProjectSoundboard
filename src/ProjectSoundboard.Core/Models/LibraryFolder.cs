@@ -19,6 +19,13 @@ public sealed class LibraryFolder
 
     public bool Enabled { get; set; } = true;
 
+    /// <summary>
+    /// Turn the folders directly inside this one into groups, and file their contents under
+    /// them. A library laid out as Music / OST / AnimeOpenings arrives already organised.
+    /// Anything sitting loose in the top level is left ungrouped.
+    /// </summary>
+    public bool GroupFromSubfolders { get; set; }
+
     /// <summary>Group automatically assigned to sounds discovered under this folder.</summary>
     public string? DefaultGroupId { get; set; }
 }

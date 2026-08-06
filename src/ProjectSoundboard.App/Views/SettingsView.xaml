@@ -398,6 +398,11 @@
                                                                       IsChecked="{Binding Enabled}" FontSize="11.5"/>
                                                         </StackPanel>
 
+                                                        <CheckBox Content="Make groups from the folders inside this one"
+                                                                  IsChecked="{Binding GroupFromSubfolders}"
+                                                                  FontSize="11.5" Margin="0,8,0,0"
+                                                                  ToolTip="Each folder directly inside becomes a group, with its contents filed under it"/>
+
                                                         <TextBlock Style="{StaticResource MutedText}" Margin="0,7,0,0">
                                                             <Run Text="{Binding SoundCount, Mode=OneWay, StringFormat=N0}"/><Run Text=" sounds"/>
                                                         </TextBlock>
@@ -458,6 +463,16 @@
                                                   IsChecked="{Binding AutoTagFromFolderName}"/>
                                     <TextBlock Text="Tag new sounds with their folder name" Margin="9,0,0,0"
                                                VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <StackPanel Style="{StaticResource SettingRow}">
+                                    <ToggleButton Style="{StaticResource Switch}"
+                                                  IsChecked="{Binding GroupFromSubfoldersByDefault}"/>
+                                    <StackPanel Margin="9,0,0,0">
+                                        <TextBlock Text="Make groups from subfolders when adding a folder"/>
+                                        <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap"
+                                                   MaxWidth="620"
+                                                   Text="A library laid out as Music, OST and AnimeOpenings arrives already organised into those three groups. Only the top level counts — anything deeper is filed under its top-level folder. You can also switch this on per folder above."/>
+                                    </StackPanel>
                                 </StackPanel>
                                 <StackPanel Style="{StaticResource SettingRow}">
                                     <ToggleButton Style="{StaticResource Switch}"

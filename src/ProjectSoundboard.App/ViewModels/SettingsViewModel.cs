@@ -36,6 +36,7 @@ public sealed partial class FolderRowViewModel : ObservableObject
         _enabled = folder.Enabled;
         _recursive = folder.Recursive;
         _watch = folder.Watch;
+        _groupFromSubfolders = folder.GroupFromSubfolders;
         SoundCount = soundCount;
     }
 
@@ -48,12 +49,23 @@ public sealed partial class FolderRowViewModel : ObservableObject
     [ObservableProperty] private bool _enabled;
     [ObservableProperty] private bool _recursive;
     [ObservableProperty] private bool _watch;
+    [ObservableProperty] private bool _groupFromSubfolders;
 
     public event EventHandler? Changed;
+
+    /// <summary>Raised when a change needs a rescan to take effect, not just a save.</summary>
+    public event EventHandler? RescanNeeded;
 
     partial void OnEnabledChanged(bool value) { Folder.Enabled = value; Changed?.Invoke(this, EventArgs.Empty); }
     partial void OnRecursiveChanged(bool value) { Folder.Recursive = value; Changed?.Invoke(this, EventArgs.Empty); }
     partial void OnWatchChanged(bool value) { Folder.Watch = value; Changed?.Invoke(this, EventArgs.Empty); }
+
+    partial void OnGroupFromSubfoldersChanged(bool value)
+    {
+        Folder.GroupFromSubfolders = value;
+        Changed?.Invoke(this, EventArgs.Empty);
+        if (value) RescanNeeded?.Invoke(this, EventArgs.Empty);
+    }
 }
 
 /// <summary>Everything under the Settings page, grouped into the categories in the sidebar.</summary>
@@ -118,6 +130,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private ConflictAction _conflictAction;
     [ObservableProperty] private bool _preserveFolderStructureOnImport;
     [ObservableProperty] private bool _autoTagFromFolderName;
+    [ObservableProperty] private bool _groupFromSubfoldersByDefault;
     [ObservableProperty] private bool _detectDuplicatesOnImport;
     [ObservableProperty] private bool _watchFolders;
     [ObservableProperty] private bool _scanOnStartup;
@@ -221,6 +234,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         ConflictAction = s.Library.ConflictAction;
         PreserveFolderStructureOnImport = s.Library.PreserveFolderStructureOnImport;
         AutoTagFromFolderName = s.Library.AutoTagFromFolderName;
+        GroupFromSubfoldersByDefault = s.Library.GroupFromSubfoldersByDefault;
         DetectDuplicatesOnImport = s.Library.DetectDuplicatesOnImport;
         WatchFolders = s.Library.WatchFolders;
         ScanOnStartup = s.Library.ScanOnStartup;
@@ -295,6 +309,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         s.Library.ConflictAction = ConflictAction;
         s.Library.PreserveFolderStructureOnImport = PreserveFolderStructureOnImport;
         s.Library.AutoTagFromFolderName = AutoTagFromFolderName;
+        s.Library.GroupFromSubfoldersByDefault = GroupFromSubfoldersByDefault;
         s.Library.DetectDuplicatesOnImport = DetectDuplicatesOnImport;
         s.Library.WatchFolders = WatchFolders;
         s.Library.ScanOnStartup = ScanOnStartup;
@@ -401,6 +416,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     partial void OnConflictActionChanged(ConflictAction value) => Save();
     partial void OnPreserveFolderStructureOnImportChanged(bool value) => Save();
     partial void OnAutoTagFromFolderNameChanged(bool value) => Save();
+    partial void OnGroupFromSubfoldersByDefaultChanged(bool value) => Save();
     partial void OnDetectDuplicatesOnImportChanged(bool value) => Save();
     partial void OnScanOnStartupChanged(bool value) => Save();
     partial void OnRememberRecentSearchesChanged(bool value) => Save();
@@ -513,6 +529,13 @@ public sealed partial class SettingsViewModel : ObservableObject
                 _services.Settings.Save();
                 _services.Library.StartWatching();
             };
+            row.RescanNeeded += async (_, _) =>
+            {
+                StatusText = "Building groups from subfolders…";
+                await _main.RescanAsync();
+                _main.BuildTree();
+                StatusText = "Groups created from subfolder names.";
+            };
 
             Folders.Add(row);
         }
@@ -540,7 +563,14 @@ public sealed partial class SettingsViewModel : ObservableObject
             return false;
         }
 
-        folders.Add(new LibraryFolder { Path = path, Recursive = true, Watch = true });
+        folders.Add(new LibraryFolder
+        {
+            Path = path,
+            Recursive = true,
+            Watch = true,
+            GroupFromSubfolders = _services.Settings.Settings.Library.GroupFromSubfoldersByDefault
+        });
+
         _services.Settings.Save();
         StatusText = $"Added '{path}'.";
         return true;
@@ -553,17 +583,29 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         var confirm = MessageBox.Show(
             $"Stop watching this folder?\n\n{row.Path}\n\n" +
-            "The files stay on disk. Sounds from this folder leave your library, but any " +
-            "custom names and images are kept in case you add it back.",
+            $"Its {row.SoundCount:N0} sound(s) leave your library, along with their display " +
+            "names, artwork and tags. Nothing on disk is touched — the audio files stay " +
+            "exactly where they are, and you can add the folder back at any time.",
             "Remove folder", MessageBoxButton.OKCancel, MessageBoxImage.Question);
 
         if (confirm != MessageBoxResult.OK) return;
 
-        _services.Settings.Settings.Library.Folders.Remove(row.Folder);
+        var folders = _services.Settings.Settings.Library.Folders;
+        folders.Remove(row.Folder);
         _services.Settings.Save();
 
+        // The scan will not do this for us: it only treats a sound as gone if it still sits
+        // under a watched folder, so removing one used to leave its sounds stranded.
+        var removed = _services.Library.RemoveSoundsUnder(
+            row.Path, folders.Select(f => f.Path));
+
         await _main.RescanAsync();
+        _main.BuildTree();
         RefreshFolders();
+
+        StatusText = removed > 0
+            ? $"Removed '{row.Path}' and its {removed:N0} sound(s)."
+            : $"Removed '{row.Path}'.";
     }
 
     [RelayCommand]
