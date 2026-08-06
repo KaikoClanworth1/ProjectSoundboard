@@ -8,75 +8,58 @@ namespace ProjectSoundboard.Audio.Playback;
 /// tracks) that would be wasteful to hold in memory.
 ///
 /// Decoding happens on a dedicated background thread that keeps a ring buffer topped up;
-/// the audio thread only ever memcpys out of that ring. Decoding MP3 or Opus and resampling
-/// it directly on the WASAPI render thread works fine on a fast machine and misses the
-/// buffer deadline on a slow one — which is heard as stuttering, robotic playback.
+/// the audio thread only ever memcpys out of that ring. Decoding directly on the WASAPI
+/// render thread works on a fast machine and misses the buffer deadline on a slow one,
+/// which is heard as stuttering, robotic playback.
+///
+/// The decoder is also *opened* on that thread. Media Foundation readers are COM objects
+/// with apartment affinity: created on the UI thread and then read from a background one,
+/// every read fails with E_NOINTERFACE and the sound stops a fraction of a second after it
+/// starts. Everything that touches the reader now lives on the one thread.
 /// </summary>
 public sealed class StreamingVoice : VoiceBase, IDisposable
 {
     /// <summary>How much decoded audio to keep ahead of the render thread.</summary>
     private const double BufferSeconds = 1.5;
 
-    /// <summary>Decoded up front so playback never starts on an empty ring.</summary>
+    /// <summary>Decoded before playback starts, so the ring is never empty at the start.</summary>
     private const double PrimeSeconds = 0.25;
 
-    private readonly AudioSource _source;
+    private readonly string _path;
     private readonly FloatRingBuffer _ring;
     private readonly float[] _block;        // render-side staging, pulled from the ring
     private readonly float[] _decodeBuffer; // decoder-side staging
-    private readonly long _startFrame;
-    private readonly long _endFrame;
     private readonly CancellationTokenSource _cancel = new();
+    private readonly ManualResetEventSlim _ready = new(false);
     private readonly Thread _decoder;
+
+    // Owned by the decoder thread once it starts.
+    private AudioSource? _source;
+    private Exception? _openFailure;
+    private double _durationSeconds;
+    private long _startFrame;
+    private long _endFrame = long.MaxValue;
 
     private int _blockFrames;
     private int _blockPosition;
-
-    /// <summary>Position in the file, owned by the decoder thread.</summary>
     private long _sourceFrame;
-
-    /// <summary>Seek target for the decoder, or -1. Set by the audio thread.</summary>
     private long _seekRequest = -1;
 
     private volatile bool _decoderEnded;
     private volatile bool _disposed;
 
-    /// <summary>Frames handed to the mixer, for position reporting.</summary>
     private long _renderFrame;
-
     private int _starvations;
-
-    /// <summary>
-    /// How many times the audio thread reached the ring buffer and found it empty while the
-    /// decoder was still working — in other words, how often the machine failed to keep up.
-    /// Should be zero during steady playback; a non-zero count is what "robotic" sounds like.
-    /// </summary>
-    public int Starvations => Volatile.Read(ref _starvations);
 
     public StreamingVoice(string path, VoiceSettings settings, WaveFormat format)
         : base(format, settings)
     {
-        _source = AudioFileFactory.Open(path, format.SampleRate, format.Channels);
+        _path = path;
 
         var channels = format.Channels;
         _ring = new FloatRingBuffer((int)(BufferSeconds * format.SampleRate) * channels);
         _block = new float[4096 * channels];
         _decodeBuffer = new float[8192 * channels];
-
-        _startFrame = Math.Max(0, MsToFrames(settings.TrimStartMs));
-
-        var total = (long)(_source.Duration.TotalSeconds * format.SampleRate);
-        var end = settings.TrimEndMs > 0 ? MsToFrames(settings.TrimEndMs) : total;
-        _endFrame = end > _startFrame ? end : long.MaxValue;
-
-        if (_startFrame > 0) SeekStream(_startFrame);
-        _sourceFrame = _startFrame;
-        _renderFrame = _startFrame;
-
-        if (total > 0) SetTotalOutputFrames(Math.Min(_endFrame, total) - _startFrame);
-
-        // Fill enough to cover the first few buffer callbacks before handing over.
-        Decode((int)(PrimeSeconds * format.SampleRate) * channels);
 
         _decoder = new Thread(DecodeLoop)
         {
@@ -86,45 +69,93 @@ public sealed class StreamingVoice : VoiceBase, IDisposable
             // thread, which WASAPI already runs at a raised priority.
             Priority = ThreadPriority.AboveNormal
         };
+
+        // Media Foundation is happiest in the multi-threaded apartment, and this keeps the
+        // reader away from the UI thread's STA entirely.
+        if (OperatingSystem.IsWindows()) _decoder.SetApartmentState(ApartmentState.MTA);
         _decoder.Start();
+
+        // Wait for the file to open so a failure surfaces as a normal "cannot play this"
+        // rather than a sound that starts and immediately stops.
+        if (!_ready.Wait(TimeSpan.FromSeconds(15)))
+        {
+            Dispose();
+            throw new TimeoutException($"Timed out opening '{Path.GetFileName(path)}'.");
+        }
+
+        if (_openFailure is not null)
+        {
+            Dispose();
+            throw _openFailure;
+        }
     }
 
-    public override double PositionSeconds => (double)_renderFrame / SampleRate;
+    public override double PositionSeconds => (double)Volatile.Read(ref _renderFrame) / SampleRate;
 
     public override double LengthSeconds
     {
         get
         {
-            var total = _source.Duration.TotalSeconds;
-            var end = _endFrame == long.MaxValue ? total : _endFrame / (double)SampleRate;
+            var end = _endFrame == long.MaxValue ? _durationSeconds : _endFrame / (double)SampleRate;
             return Math.Max(0, end - _startFrame / (double)SampleRate);
         }
     }
 
+    /// <summary>
+    /// How many times the audio thread found the ring empty while the decoder was still
+    /// working — how often this machine failed to keep up. Zero during steady playback.
+    /// </summary>
+    public int Starvations => Volatile.Read(ref _starvations);
+
     // -----------------------------------------------------------------------
-    // Decoder thread
+    // Decoder thread — the only thread that may touch _source
     // -----------------------------------------------------------------------
 
     private void DecodeLoop()
     {
         try
         {
+            _source = AudioFileFactory.Open(_path, SampleRate, ChannelCount);
+            _durationSeconds = _source.Duration.TotalSeconds;
+
+            _startFrame = Math.Max(0, MsToFrames(Settings.TrimStartMs));
+
+            var total = (long)(_durationSeconds * SampleRate);
+            var end = Settings.TrimEndMs > 0 ? MsToFrames(Settings.TrimEndMs) : total;
+            _endFrame = end > _startFrame ? end : long.MaxValue;
+
+            if (_startFrame > 0) SeekStream(_startFrame);
+            _sourceFrame = _startFrame;
+            Volatile.Write(ref _renderFrame, _startFrame);
+
+            if (total > 0) SetTotalOutputFrames(Math.Min(_endFrame, total) - _startFrame);
+
+            Decode((int)(PrimeSeconds * SampleRate) * ChannelCount);
+        }
+        catch (Exception ex)
+        {
+            _openFailure = ex;
+            _decoderEnded = true;
+        }
+        finally
+        {
+            _ready.Set();
+        }
+
+        if (_openFailure is not null) return;
+
+        try
+        {
             while (!_cancel.IsCancellationRequested && !_disposed)
             {
-                var free = _ring.Capacity - _ring.Available;
-
-                // Keep it comfortably full without spinning.
-                if (free < _decodeBuffer.Length)
+                if (_ring.Capacity - _ring.Available < _decodeBuffer.Length)
                 {
                     Thread.Sleep(5);
                     continue;
                 }
 
-                if (!Decode(_decodeBuffer.Length))
-                {
-                    // Nothing more to produce; idle until disposed so the ring can drain.
-                    Thread.Sleep(20);
-                }
+                // Nothing more to produce; idle so the ring can drain.
+                if (!Decode(_decodeBuffer.Length)) Thread.Sleep(20);
             }
         }
         catch (Exception ex)
@@ -134,13 +165,11 @@ public sealed class StreamingVoice : VoiceBase, IDisposable
         }
     }
 
-    /// <summary>
-    /// Decode up to <paramref name="maxSamples"/> into the ring. Returns false when the
-    /// source is exhausted. Runs on the decoder thread, and once from the constructor
-    /// before that thread exists.
-    /// </summary>
+    /// <summary>Decode into the ring. Returns false once the source is exhausted.</summary>
     private bool Decode(int maxSamples)
     {
+        if (_source is null) return false;
+
         var pending = Interlocked.Exchange(ref _seekRequest, -1);
         if (pending >= 0)
         {
@@ -155,18 +184,17 @@ public sealed class StreamingVoice : VoiceBase, IDisposable
 
         if (_decoderEnded) return false;
 
-        // Stop at the trim point.
         var remaining = _endFrame == long.MaxValue ? long.MaxValue : _endFrame - _sourceFrame;
         if (remaining <= 0)
         {
             if (!Settings.Loop) { _decoderEnded = true; return false; }
+
             SeekStream(_startFrame);
             _sourceFrame = _startFrame;
             remaining = _endFrame - _startFrame;
         }
 
-        var wanted = (int)Math.Min(maxSamples, remaining * ChannelCount);
-        wanted = Math.Min(wanted, _decodeBuffer.Length);
+        var wanted = (int)Math.Min(Math.Min(maxSamples, remaining * ChannelCount), _decodeBuffer.Length);
         if (wanted <= 0) return false;
 
         int read;
@@ -176,7 +204,7 @@ public sealed class StreamingVoice : VoiceBase, IDisposable
         }
         catch (Exception ex)
         {
-            Log.Warn($"Streaming decode failed: {ex.Message}");
+            Log.Warn($"Streaming decode failed for '{Path.GetFileName(_path)}': {ex.Message}");
             _decoderEnded = true;
             return false;
         }
@@ -197,13 +225,15 @@ public sealed class StreamingVoice : VoiceBase, IDisposable
 
     private void SeekStream(long frame)
     {
+        if (_source is null) return;
+
         try
         {
             if (!_source.Stream.CanSeek) return;
 
             var seconds = frame / (double)SampleRate;
             _source.Stream.CurrentTime = TimeSpan.FromSeconds(
-                Math.Clamp(seconds, 0, _source.Duration.TotalSeconds));
+                Math.Clamp(seconds, 0, _durationSeconds));
         }
         catch (Exception ex)
         {
@@ -219,13 +249,13 @@ public sealed class StreamingVoice : VoiceBase, IDisposable
 
     protected override void ApplySeek(long frame)
     {
-        // Hand the work to the decoder — only it may touch the stream. Dropping what we
-        // already have avoids a moment of audio from the old position.
+        // Only the decoder may touch the stream, so hand it the request and drop what we
+        // already hold rather than playing a moment from the old position.
         Interlocked.Exchange(ref _seekRequest, frame);
         _ring.Clear();
         _blockFrames = 0;
         _blockPosition = 0;
-        _renderFrame = frame;
+        Volatile.Write(ref _renderFrame, frame);
     }
 
     protected override bool ReadSourceFrame(float[] destination)
@@ -238,12 +268,10 @@ public sealed class StreamingVoice : VoiceBase, IDisposable
 
             if (read == 0)
             {
-                // Genuinely finished, or the decoder has not caught up yet. Ending the
-                // voice on a momentary shortfall would truncate the sound, so only stop
-                // when the decoder says there is nothing left.
+                // Genuinely finished, or the decoder has not caught up. Ending the voice on
+                // a momentary shortfall would truncate the sound.
                 if (_decoderEnded) return false;
 
-                // Emit a little silence and let the decoder catch up.
                 Interlocked.Increment(ref _starvations);
                 Array.Clear(_block);
                 _blockFrames = Math.Min(64, _block.Length / ChannelCount);
@@ -261,7 +289,7 @@ public sealed class StreamingVoice : VoiceBase, IDisposable
         for (var c = 0; c < ChannelCount; c++) destination[c] = _block[offset + c];
 
         _blockPosition++;
-        _renderFrame++;
+        Interlocked.Increment(ref _renderFrame);
         return true;
     }
 
@@ -272,11 +300,12 @@ public sealed class StreamingVoice : VoiceBase, IDisposable
 
         _cancel.Cancel();
 
-        // The decoder owns the stream, so it has to be finished with it before we close it.
+        // The decoder owns the reader, so it must be done before we close it.
         if (_decoder.IsAlive && !_decoder.Join(TimeSpan.FromSeconds(2)))
             Log.Debug("Decoder thread did not stop in time.");
 
         _cancel.Dispose();
-        _source.Dispose();
+        _ready.Dispose();
+        _source?.Dispose();
     }
 }
