@@ -13,6 +13,9 @@
     <AssemblyTitle>Project Soundboard</AssemblyTitle>
     <Version>1.0.0</Version>
     <Company>Project Soundboard</Company>
+    <Copyright>Copyright (C) 2026 KaikoClanworth1. Licensed under GPL-3.0-or-later.</Copyright>
+    <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/KaikoClanworth1/ProjectSoundboard</RepositoryUrl>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>

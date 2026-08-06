@@ -24,11 +24,33 @@ Built with **.NET 10 / WPF** and **NAudio (WASAPI)**.
 
 ---
 
-## Quick start
+## Download
+
+Grab the latest zip from the [Releases page](https://github.com/KaikoClanworth1/ProjectSoundboard/releases),
+unpack it anywhere you like, and run `ProjectSoundboard.exe`. There is no installer — it is a
+portable app, so unpacking *is* the install.
+
+**Requirements**
+
+- Windows 10 (1607 or newer) or Windows 11
+- [.NET 10 Desktop Runtime (x64)](https://dotnet.microsoft.com/download/dotnet/10.0) — a small
+  one-time install. Releases are framework-dependent to keep update downloads at a few MB
+  rather than 150 MB.
+- A virtual audio cable, if you want sounds to reach voice chat. The setup wizard offers to
+  install one for you — see below.
+
+Releases are **not code-signed**, so Windows SmartScreen will warn the first time you run it.
+Click *More info → Run anyway*, or check the file against the Releases page first.
+
+## Building from source
 
 ```bash
+git clone https://github.com/KaikoClanworth1/ProjectSoundboard.git
+cd ProjectSoundboard
 dotnet run --project src/ProjectSoundboard.App
 ```
+
+Needs the .NET 10 SDK. There are no other prerequisites — NuGet restores everything else.
 
 ### Portable by design
 
@@ -233,3 +255,33 @@ Data lives in `%APPDATA%\Project Soundboard` — `settings.json`, `library.json`
 - **Update checking is a setting, not an implementation** — there is no release feed behind it.
 - The generated tile colour, duplicate detection (size + duration + name) and the latency
   figure are all heuristics, not exact.
+
+---
+
+## Licence
+
+Licensed under the **GNU General Public License v3.0** — see [LICENSE](LICENSE).
+
+In short: you may use, study, modify and share this freely. If you distribute a modified
+version, or anything built on it, that has to be open source under GPL-3.0 as well.
+
+### Third-party components
+
+All of these are GPL-3.0 compatible:
+
+| Component | Licence | Used for |
+|---|---|---|
+| [NAudio](https://github.com/naudio/NAudio) | MIT | WASAPI output and capture, resampling, biquad filters |
+| [NAudio.Vorbis](https://github.com/naudio/Vorbis) | MIT | Ogg Vorbis decoding |
+| [Concentus](https://github.com/lostromb/concentus) | BSD-3-Clause | Opus decoding |
+| [Concentus.Oggfile](https://github.com/lostromb/concentus.oggfile) | MIT | Ogg container parsing for `.opus` |
+| [TagLib#](https://github.com/mono/taglib-sharp) | LGPL-2.1 | Reading duration, bitrate and sample rate from tags |
+| [CommunityToolkit.Mvvm](https://github.com/CommunityToolkit/dotnet) | MIT | MVVM source generators |
+
+TagLib# is LGPL and used as a separate assembly, which is exactly the arrangement the LGPL is
+written for.
+
+**VB-CABLE is not included.** It is a free-for-personal-use driver by
+[VB-Audio](https://vb-audio.com/Cable/), and Project Soundboard neither bundles nor modifies
+it — the setup wizard downloads VB-Audio's own installer, verifies its signature, and hands it
+to Windows to install.
