@@ -217,10 +217,45 @@
                         <Button Style="{StaticResource IconButton}" Content="&#xE893;"
                                 FontFamily="Segoe MDL2 Assets" Command="{Binding PlayNextCommand}"
                                 ToolTip="Next sound" AutomationProperties.Name="Next sound"/>
-                        <Button Style="{StaticResource IconButton}" Content="&#xE8B1;"
+                        <!-- Shuffle and loop show their "on" state with an accent colour and
+                             a filled background, never colour alone, so they still read in
+                             high contrast and colour-blind modes. -->
+                        <Button FontFamily="Segoe MDL2 Assets" Content="&#xE8B1;"
+                                Command="{Binding ToggleShuffleCommand}"
+                                ToolTip="Shuffle this group — keep playing random sounds from what is listed"
+                                AutomationProperties.Name="Shuffle this group">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding ShuffleEnabled}" Value="True">
+                                            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                            <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+
+                        <Button FontFamily="Segoe MDL2 Assets" Content="&#xE8ED;"
+                                Command="{Binding ToggleLoopCurrentCommand}"
+                                ToolTip="Loop the current sound"
+                                AutomationProperties.Name="Loop the current sound">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding LoopCurrent}" Value="True">
+                                            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                            <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+
+                        <Button Style="{StaticResource IconButton}" Content="&#xE753;"
                                 FontFamily="Segoe MDL2 Assets" Command="{Binding PlayRandomCommand}"
-                                ToolTip="Play something random (Ctrl+R)"
-                                AutomationProperties.Name="Play random sound"/>
+                                ToolTip="Play one random sound from this group (Ctrl+R)"
+                                AutomationProperties.Name="Play one random sound"/>
 
                         <Border Width="1" Background="{DynamicResource BorderBrushSoft}" Margin="8,4"/>
 
@@ -309,9 +344,12 @@
                             </Button.Style>
                         </Button>
 
-                        <TextBlock Text="&#xE767;" FontFamily="Segoe MDL2 Assets" VerticalAlignment="Center"
-                                   Margin="10,0,8,0" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                        <!-- There used to be a second, decorative speaker icon here, right
+                             where every other application puts its mute button. It was a
+                             plain TextBlock, so clicking it did nothing at all. The real
+                             mute button above now sits next to the slider on its own. -->
                         <Slider Width="130" Minimum="0" Maximum="1" VerticalAlignment="Center"
+                                Margin="10,0,0,0"
                                 Value="{Binding MasterVolume}" ToolTip="Master volume"
                                 AutomationProperties.Name="Master volume"/>
                         <TextBlock Text="{Binding MasterVolume, Converter={StaticResource Percent}}"

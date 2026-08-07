@@ -123,6 +123,12 @@ public sealed class PlaybackHandle
         foreach (var v in Voices) v.SetSpeed(speed);
     }
 
+    /// <summary>Start or stop looping without interrupting what is already playing.</summary>
+    public void SetLoop(bool loop)
+    {
+        foreach (var v in Voices) v.SetLoop(loop);
+    }
+
     /// <summary>Live multiplier used by ducking and the soundboard mute hotkey.</summary>
     internal void SetExternalGain(float gain)
     {

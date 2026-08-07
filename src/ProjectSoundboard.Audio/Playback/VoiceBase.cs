@@ -41,6 +41,7 @@ public abstract class VoiceBase : ISampleProvider
     private long _fadeInFrames;
     private long _fadeOutFrames;
     private long _totalOutputFrames = -1;
+    private long _sourceOutputFrames = -1;
 
     private int _releaseTotal;
     private int _releaseRemaining;
@@ -107,8 +108,22 @@ public abstract class VoiceBase : ISampleProvider
     /// </summary>
     protected void SetTotalOutputFrames(long sourceFrames)
     {
+        // Remembered so turning looping off mid-playback can restore the fade-out target.
+        _sourceOutputFrames = sourceFrames;
+
         if (Settings.Loop) { _totalOutputFrames = -1; return; }
         _totalOutputFrames = Speed <= 0 ? sourceFrames : (long)(sourceFrames / Speed);
+    }
+
+    /// <summary>
+    /// Turn looping on or off while the sound is playing, for the transport's loop button.
+    /// The decoders read <see cref="VoiceSettings.Loop"/> each time they reach the end, so
+    /// this takes effect on the next pass rather than needing a restart.
+    /// </summary>
+    public void SetLoop(bool loop)
+    {
+        Settings.Loop = loop;
+        if (_sourceOutputFrames >= 0) SetTotalOutputFrames(_sourceOutputFrames);
     }
 
     public void Pause() => _paused = true;

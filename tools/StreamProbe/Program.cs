@@ -38,6 +38,24 @@ internal static class Program
             return 0;
         }
 
+        if (args[0] == "--loop")
+        {
+            Console.WriteLine("mode: LOOP (SetLoop while playing, what the loop button drives)");
+            Console.WriteLine();
+
+            foreach (var path in args.Skip(1)) LoopProbe(path);
+            return 0;
+        }
+
+        if (args[0] == "--mute")
+        {
+            Console.WriteLine("mode: MUTE (ExternalGain, what the mute button drives)");
+            Console.WriteLine();
+
+            foreach (var path in args.Skip(1)) MuteProbe(path);
+            return 0;
+        }
+
         Console.WriteLine();
 
         var failures = 0;
@@ -114,6 +132,127 @@ internal static class Program
             $"starvations={voice.Starvations}{(endedEarly ? " ENDED-EARLY" : "")}");
 
         return ok;
+    }
+
+    /// <summary>
+    /// Trims the sound to its first second, then checks that it stops there when looping is
+    /// off, and keeps going past it when looping is switched on mid-playback.
+    /// </summary>
+    private static void LoopProbe(string path)
+    {
+        var format = WaveFormat.CreateIeeeFloatWaveFormat(SampleRate, Channels);
+
+        static VoiceSettings OneSecond() =>
+            new() { Volume = 1f, TrimStartMs = 0, TrimEndMs = 1000 };
+
+        // Control: without looping it has to end at the trim point.
+        using (var plain = new StreamingVoice(path, OneSecond(), format))
+        {
+            var (endedAt, _) = RunUntilEnd(plain, 2.0, null);
+            Console.WriteLine(
+                $"{(endedAt is > 0.5 and < 1.5 ? "PASS" : "FAIL")}  loop off  " +
+                $"{Path.GetFileName(path),-46}  ended at {endedAt:F2}s (expected ~1.00s)");
+        }
+
+        // Switch looping on part way through: it must run straight past the trim point.
+        using (var looped = new StreamingVoice(path, OneSecond(), format))
+        {
+            var (endedAt, peak) = RunUntilEnd(looped, 2.5, 0.5);
+            var ok = endedAt < 0 && peak > 0.001f;
+            Console.WriteLine(
+                $"{(ok ? "PASS" : "FAIL")}  loop on   {Path.GetFileName(path),-46}  " +
+                $"{(endedAt < 0 ? "still playing at 2.50s" : $"ended at {endedAt:F2}s")}, peak={peak:F4}");
+        }
+    }
+
+    /// <summary>
+    /// Play at real-time pace. Returns when the voice ends (with the time it ended) or the
+    /// window expires (-1). <paramref name="enableLoopAt"/> switches looping on part way.
+    /// </summary>
+    private static (double EndedAt, float Peak) RunUntilEnd(
+        StreamingVoice voice, double seconds, double? enableLoopAt)
+    {
+        const int frames = SampleRate / 100;
+        var buffer = new float[frames * Channels];
+        var blocks = (int)(seconds * 100);
+        var peak = 0f;
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+
+        for (var b = 0; b < blocks; b++)
+        {
+            var now = b / 100.0;
+            if (enableLoopAt is { } at && now >= at) voice.SetLoop(true);
+
+            var read = voice.Read(buffer, 0, buffer.Length);
+            var block = Peak(buffer, read);
+
+            // Only count signal from after the loop was switched on, so a loud opening
+            // second cannot stand in for audio that is no longer being produced.
+            if (enableLoopAt is null || now > 1.2) { if (block > peak) peak = block; }
+
+            if (read < buffer.Length) return (now, peak);
+
+            var due = TimeSpan.FromMilliseconds((b + 1) * 10);
+            var wait = due - clock.Elapsed;
+            if (wait > TimeSpan.Zero) Thread.Sleep(wait);
+        }
+
+        return (-1, peak);
+    }
+
+    /// <summary>
+    /// The soundboard mute button ends up setting ExternalGain to 0 on every live voice.
+    /// This checks that a voice actually goes silent when it does.
+    /// </summary>
+    private static void MuteProbe(string path)
+    {
+        var format = WaveFormat.CreateIeeeFloatWaveFormat(SampleRate, Channels);
+        using var voice = new StreamingVoice(path, new VoiceSettings { Volume = 1f }, format);
+
+        // Paced to real time. Draining flat out empties the ring faster than the decoder
+        // fills it, and the silence that follows looks exactly like a successful mute.
+        var before = ReadPhase(voice, 10);
+
+        voice.ExternalGain = 0f;
+        var muted = ReadPhase(voice, 10);
+
+        voice.ExternalGain = 1f;
+        var after = ReadPhase(voice, 10);
+
+        var ok = before > 0.001f && muted < 0.0001f && after > 0.001f;
+
+        Console.WriteLine(
+            $"{(ok ? "PASS" : "FAIL")}  {Path.GetFileName(path),-50}  " +
+            $"before={before:F4} muted={muted:F6} unmuted={after:F4}");
+    }
+
+    /// <summary>Read <paramref name="blocks"/> × 10 ms at real-time pace, loudest sample wins.</summary>
+    private static float ReadPhase(StreamingVoice voice, int blocks)
+    {
+        const int frames = SampleRate / 100;
+        var buffer = new float[frames * Channels];
+        var peak = 0f;
+
+        for (var i = 0; i < blocks; i++)
+        {
+            var read = voice.Read(buffer, 0, buffer.Length);
+            var block = Peak(buffer, read);
+            if (block > peak) peak = block;
+            Thread.Sleep(10);
+        }
+
+        return peak;
+    }
+
+    private static float Peak(float[] buffer, int count)
+    {
+        var peak = 0f;
+        for (var i = 0; i < count; i++)
+        {
+            var abs = Math.Abs(buffer[i]);
+            if (abs > peak) peak = abs;
+        }
+        return peak;
     }
 
     /// <summary>

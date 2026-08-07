@@ -228,7 +228,25 @@ public sealed partial class PropertiesViewModel : ObservableObject, IDisposable
         foreach (var handle in LiveHandles()) handle.SetSpeed(value);
     }
 
-    partial void OnLoopChanged(bool value) => Apply(e => e.Loop = value, refreshTile: false);
+    partial void OnLoopChanged(bool value)
+    {
+        Apply(e => e.Loop = value, refreshTile: false);
+
+        // Take effect on a sound that is already playing, the same way volume and speed do,
+        // and keep the transport bar's loop button showing the same state.
+        foreach (var handle in LiveHandles()) handle.SetLoop(value);
+        if (!_loading && Sound is not null) _main.NotifyLoopChanged();
+    }
+
+    /// <summary>Reflect a loop change made from the transport bar, without writing it back.</summary>
+    public void NotifyLoopChanged(bool loop)
+    {
+        if (Loop == loop) return;
+
+        _loading = true;
+        Loop = loop;
+        _loading = false;
+    }
 
     partial void OnFadeInMsChanged(int value) =>
         Apply(e => e.FadeInMs = Math.Max(0, value), refreshTile: false);

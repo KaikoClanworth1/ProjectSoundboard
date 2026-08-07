@@ -198,6 +198,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (oldValue is not null) oldValue.IsSelected = false;
         if (newValue is not null) newValue.IsSelected = true;
         Properties.Load(newValue);
+        RefreshLoopState();
     }
 
     partial void OnViewModeChanged(LibraryViewMode value)
@@ -553,22 +554,26 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     partial void OnSoundboardMutedChanged(bool value) => _services.Engine.SetSoundboardMuted(value);
 
     [RelayCommand]
-    public void Play(SoundViewModel? sound)
+    public void Play(SoundViewModel? sound) => PlayCore(sound);
+
+    /// <summary>Play, reporting whether it actually started — shuffle needs to know.</summary>
+    private bool PlayCore(SoundViewModel? sound)
     {
-        if (sound is null) return;
+        if (sound is null) return false;
 
         if (sound.IsMissing)
         {
             StatusMessage = $"'{sound.DisplayName}' is missing from disk.";
-            return;
+            return false;
         }
 
         var handle = _services.Engine.Play(sound.Entry);
-        if (handle is null) return;
+        if (handle is null) return false;
 
         _services.Library.RecordPlayed(sound.Entry);
         sound.RefreshAll();
         SyncPlayingState();
+        return true;
     }
 
     [RelayCommand]
@@ -579,7 +584,13 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
-    private void StopAll() => _services.Engine.StopAll();
+    private void StopAll()
+    {
+        // Stop all has to mean stop. Leaving shuffle running would start the next sound the
+        // instant this one goes quiet, which reads as the button not working.
+        ShuffleEnabled = false;
+        _services.Engine.StopAll();
+    }
 
     [RelayCommand]
     private void TogglePause() => _services.Engine.TogglePauseAll();
@@ -592,8 +603,154 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         var pool = Results.Where(r => !r.HasProblem).ToList();
         if (pool.Count == 0) return;
-        Play(pool[_random.Next(pool.Count)]);
+        PlayCore(pool[_random.Next(pool.Count)]);
     }
+
+    // -----------------------------------------------------------------------
+    // Shuffle
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Sounds still to come in the current shuffle, most recent last. A bag rather than a
+    /// fresh random pick each time, so everything in the group gets a turn before anything
+    /// repeats — which is what people mean by shuffle.
+    /// </summary>
+    private readonly List<string> _shuffleBag = new();
+
+    private string? _shuffleScope;
+    private bool _advancingShuffle;
+
+    [ObservableProperty]
+    private bool _shuffleEnabled;
+
+    [RelayCommand]
+    private void ToggleShuffle() => ShuffleEnabled = !ShuffleEnabled;
+
+    partial void OnShuffleEnabledChanged(bool value)
+    {
+        if (!value) return;
+
+        _shuffleBag.Clear();
+        _shuffleScope = null;
+
+        // Turning it on should do something immediately, but not cut off a sound that is
+        // already running — that one finishes and shuffle takes over from there.
+        if (!_services.Engine.IsAnythingPlaying) AdvanceShuffle();
+    }
+
+    /// <summary>
+    /// Play the next sound in the shuffle. Called when the last one finishes, so it has to
+    /// cope with the group having changed, sounds having gone missing, and the group being
+    /// emptied out from under it.
+    /// </summary>
+    private void AdvanceShuffle()
+    {
+        var pool = Results.Where(r => !r.HasProblem).ToList();
+        if (pool.Count == 0)
+        {
+            ShuffleEnabled = false;
+            StatusMessage = "Nothing here to shuffle.";
+            return;
+        }
+
+        // Changing group or search starts a new shuffle rather than finishing the old one.
+        var scope = $"{SelectedNode?.GroupId}|{SelectedNode?.Kind}|{SearchText}|{pool.Count}";
+        if (scope != _shuffleScope)
+        {
+            _shuffleScope = scope;
+            _shuffleBag.Clear();
+        }
+
+        // Each candidate gets one attempt; a sound that will not start is skipped rather
+        // than stalling the whole shuffle.
+        for (var attempt = 0; attempt < pool.Count; attempt++)
+        {
+            if (_shuffleBag.Count == 0) Refill(pool);
+            if (_shuffleBag.Count == 0) break;
+
+            var id = _shuffleBag[^1];
+            _shuffleBag.RemoveAt(_shuffleBag.Count - 1);
+
+            var next = pool.FirstOrDefault(p => p.Id == id);
+            if (next is null) continue;
+
+            SelectedSound = next;
+            if (PlayCore(next)) return;
+        }
+
+        ShuffleEnabled = false;
+        StatusMessage = "Shuffle stopped — nothing here could be played.";
+    }
+
+    private void Refill(IReadOnlyList<SoundViewModel> pool)
+    {
+        _shuffleBag.Clear();
+        _shuffleBag.AddRange(pool.Select(p => p.Id));
+
+        // Fisher-Yates.
+        for (var i = _shuffleBag.Count - 1; i > 0; i--)
+        {
+            var j = _random.Next(i + 1);
+            (_shuffleBag[i], _shuffleBag[j]) = (_shuffleBag[j], _shuffleBag[i]);
+        }
+
+        // Avoid following a sound with itself when the bag wraps around.
+        if (_shuffleBag.Count > 1 && SelectedSound is not null && _shuffleBag[^1] == SelectedSound.Id)
+            (_shuffleBag[^1], _shuffleBag[0]) = (_shuffleBag[0], _shuffleBag[^1]);
+    }
+
+    // -----------------------------------------------------------------------
+    // Loop
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// What the loop button acts on: whatever is playing, falling back to the selection so
+    /// the button still works before you have pressed anything.
+    /// </summary>
+    private SoundViewModel? LoopTarget
+    {
+        get
+        {
+            var playing = _services.Engine.Active.FirstOrDefault();
+            if (playing is not null && FindViewModel(playing.SoundId) is { } vm) return vm;
+            return SelectedSound;
+        }
+    }
+
+    [ObservableProperty]
+    private bool _loopCurrent;
+
+    [RelayCommand]
+    private void ToggleLoopCurrent()
+    {
+        if (LoopTarget is not { } sound)
+        {
+            StatusMessage = "Select or play a sound first.";
+            return;
+        }
+
+        SetLoop(sound, !sound.Entry.Loop);
+    }
+
+    /// <summary>Set looping for one sound, on disk and on anything already playing it.</summary>
+    public void SetLoop(SoundViewModel sound, bool loop)
+    {
+        sound.Entry.Loop = loop;
+        _services.Library.MarkMetadataDirty();
+
+        foreach (var handle in _services.Engine.Active.Where(h => h.SoundId == sound.Id))
+            handle.SetLoop(loop);
+
+        RefreshLoopState();
+
+        // Keep the properties panel's own loop switch in step.
+        if (Properties.Sound == sound) Properties.NotifyLoopChanged(loop);
+    }
+
+    private void RefreshLoopState() => LoopCurrent = LoopTarget?.Entry.Loop ?? false;
+
+    /// <summary>Called by the properties panel when its own loop switch is used.</summary>
+    public void NotifyLoopChanged() => RefreshLoopState();
 
     [RelayCommand]
     private void PlayNext() => Step(1);
@@ -629,6 +786,17 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             var isPlaying = playing.Contains(vm.Id);
             if (vm.IsPlaying != isPlaying) vm.IsPlaying = isPlaying;
             if (!isPlaying && vm.Progress != 0) vm.Progress = 0;
+        }
+
+        RefreshLoopState();
+
+        // Everything has gone quiet, so shuffle moves on. The guard matters because starting
+        // the next sound comes straight back through here.
+        if (ShuffleEnabled && active.Count == 0 && !_advancingShuffle)
+        {
+            _advancingShuffle = true;
+            try { AdvanceShuffle(); }
+            finally { _advancingShuffle = false; }
         }
     }
 

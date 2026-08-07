@@ -46,6 +46,7 @@ public sealed class StreamingVoice : VoiceBase, IDisposable
     private long _seekRequest = -1;
 
     private volatile bool _decoderEnded;
+    private volatile bool _decodeFailed;
     private volatile bool _disposed;
 
     private long _renderFrame;
@@ -182,7 +183,19 @@ public sealed class StreamingVoice : VoiceBase, IDisposable
             _ring.Clear();
         }
 
-        if (_decoderEnded) return false;
+        if (_decoderEnded)
+        {
+            // The decoder runs up to a second and a half ahead of what you can hear, so by
+            // the time the loop button is pressed near the end of a sound it has often
+            // already stopped. Looping being on now means going back and carrying on.
+            // The ring is deliberately left alone: what it still holds is the audio just
+            // before the loop point, and dropping it would jump the sound forward.
+            if (_decodeFailed || !Settings.Loop) return false;
+
+            SeekStream(_startFrame);
+            _sourceFrame = _startFrame;
+            _decoderEnded = false;
+        }
 
         var remaining = _endFrame == long.MaxValue ? long.MaxValue : _endFrame - _sourceFrame;
         if (remaining <= 0)
@@ -205,6 +218,10 @@ public sealed class StreamingVoice : VoiceBase, IDisposable
         catch (Exception ex)
         {
             Log.Warn($"Streaming decode failed for '{Path.GetFileName(_path)}': {ex.Message}");
+
+            // A broken decoder must stay broken. Without this, turning looping on would send
+            // it back to the start to fail again, forever.
+            _decodeFailed = true;
             _decoderEnded = true;
             return false;
         }
