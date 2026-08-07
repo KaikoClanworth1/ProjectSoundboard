@@ -566,7 +566,17 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private void ToggleVirtualMicMute() => VirtualMicMuted = !VirtualMicMuted;
 
     [RelayCommand]
-    public void Play(SoundViewModel? sound) => PlayCore(sound);
+    public void Play(SoundViewModel? sound)
+    {
+        var handle = PlayCore(sound);
+        if (handle is null || sound is null) return;
+
+        // Picking a sound by hand while shuffle is on makes *that* the sound shuffle is on,
+        // and it carries on from there when the sound ends. Without this the sound shuffle
+        // had been playing stops, its completion fires an advance, and the shuffle promptly
+        // talks over the sound that was just chosen.
+        if (ShuffleEnabled) AdoptShuffleHandle(handle, sound.Id);
+    }
 
     /// <summary>Play, handing back the handle — shuffle needs to follow that exact sound.</summary>
     private PlaybackHandle? PlayCore(SoundViewModel? sound)
@@ -634,6 +644,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// <summary>The sound shuffle is currently on, so we know exactly what to wait for.</summary>
     private PlaybackHandle? _shuffleHandle;
 
+    /// <summary>What shuffle has played, oldest first, so Previous has somewhere to go.</summary>
+    private readonly List<string> _shuffleHistory = new();
+
     [ObservableProperty]
     private bool _shuffleEnabled;
 
@@ -646,6 +659,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (!value) return;
 
         _shuffleBag.Clear();
+        _shuffleHistory.Clear();
         _shuffleScope = null;
 
         // Turning it on should do something immediately, but not cut off a sound that is
@@ -693,12 +707,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
             if (PlayCore(next) is { } handle)
             {
-                // Follow this exact handle rather than matching on the sound's id. Ids let
-                // any other sound that happened to be playing decide when shuffle moved on,
-                // and shuffle was cutting tracks off after a few seconds because of it.
-                _shuffleHandle = handle;
-                handle.Completed += OnShuffleSoundCompleted;
-
+                AdoptShuffleHandle(handle, next.Id);
                 Log.Debug($"Shuffle -> '{next.DisplayName}' ({_shuffleBag.Count} left of {pool.Count})");
                 return;
             }
@@ -726,10 +735,45 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         });
     }
 
+    /// <summary>
+    /// Make <paramref name="handle"/> the sound shuffle is following. Tracking the handle
+    /// rather than the sound's id matters: ids let any other sound that happened to be
+    /// playing answer for this one, which had shuffle cutting tracks off after seconds.
+    /// </summary>
+    private void AdoptShuffleHandle(PlaybackHandle handle, string soundId)
+    {
+        DetachShuffleHandle();
+
+        _shuffleHandle = handle;
+        handle.Completed += OnShuffleSoundCompleted;
+
+        _shuffleHistory.Add(soundId);
+        if (_shuffleHistory.Count > 200) _shuffleHistory.RemoveAt(0);
+    }
+
     private void DetachShuffleHandle()
     {
         if (_shuffleHandle is not null) _shuffleHandle.Completed -= OnShuffleSoundCompleted;
         _shuffleHandle = null;
+    }
+
+    /// <summary>Step back to the sound shuffle played before this one.</summary>
+    private bool PlayPreviousShuffled()
+    {
+        if (_shuffleHistory.Count < 2) return false;
+
+        var previous = FindViewModel(_shuffleHistory[^2]);
+        if (previous is null || previous.HasProblem) return false;
+
+        // Drop the current sound and the one we are going back to; playing it adds it again.
+        _shuffleHistory.RemoveRange(_shuffleHistory.Count - 2, 2);
+
+        SelectedSound = previous;
+
+        if (PlayCore(previous) is not { } handle) return false;
+
+        AdoptShuffleHandle(handle, previous.Id);
+        return true;
     }
 
     private void Refill(IReadOnlyList<SoundViewModel> pool)
@@ -802,11 +846,24 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// <summary>Called by the properties panel when its own loop switch is used.</summary>
     public void NotifyLoopChanged() => RefreshLoopState();
 
+    /// <summary>
+    /// Next. With shuffle on this is the next sound in the shuffle, not the next one down
+    /// the list — stepping through in order is exactly what shuffle is meant to avoid.
+    /// </summary>
     [RelayCommand]
-    private void PlayNext() => Step(1);
+    private void PlayNext()
+    {
+        if (ShuffleEnabled) AdvanceShuffle();
+        else Step(1);
+    }
 
+    /// <summary>Previous. With shuffle on this walks back through what shuffle has played.</summary>
     [RelayCommand]
-    private void PlayPrevious() => Step(-1);
+    private void PlayPrevious()
+    {
+        if (ShuffleEnabled && PlayPreviousShuffled()) return;
+        Step(-1);
+    }
 
     private void Step(int direction)
     {

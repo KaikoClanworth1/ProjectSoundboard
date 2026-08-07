@@ -342,6 +342,9 @@
                           AutomationProperties.Name="Library groups">
                     <TreeView.ItemContainerStyle>
                         <Style TargetType="TreeViewItem">
+                            <!-- Without this a screen reader announces the class name of the
+                                 bound object instead of the group's name. -->
+                            <Setter Property="AutomationProperties.Name" Value="{Binding Name}"/>
                             <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
                             <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
                             <Setter Property="FontSize" Value="12.5"/>
