@@ -315,7 +315,8 @@
                         <!-- Muted state is shown by both a different glyph and a colour, never
                              colour alone, so it still reads in high contrast and colour-blind modes. -->
                         <Button FontFamily="Segoe MDL2 Assets" Command="{Binding Microphone.ToggleMuteCommand}"
-                                ToolTip="Mute microphone" AutomationProperties.Name="Mute microphone">
+                                ToolTip="Mute your microphone. The soundboard still plays through to voice chat."
+                                AutomationProperties.Name="Mute microphone">
                             <Button.Style>
                                 <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
                                     <Setter Property="Content" Value="&#xE720;"/>
@@ -329,8 +330,29 @@
                             </Button.Style>
                         </Button>
 
+                        <!-- The second mute: cuts the whole feed to voice chat, your voice and
+                             the soundboard together, while your own headphones carry on. -->
+                        <Button FontFamily="Segoe MDL2 Assets"
+                                Command="{Binding ToggleVirtualMicMuteCommand}"
+                                ToolTip="Mute everything going to voice chat — your microphone and the soundboard. You still hear the sounds yourself."
+                                AutomationProperties.Name="Mute everything to voice chat">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
+                                    <Setter Property="Content" Value="&#xE785;"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding VirtualMicMuted}" Value="True">
+                                            <Setter Property="Content" Value="&#xE72E;"/>
+                                            <Setter Property="Foreground" Value="{DynamicResource DangerBrush}"/>
+                                            <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+
                         <Button FontFamily="Segoe MDL2 Assets" Command="{Binding ToggleSoundboardMuteCommand}"
-                                ToolTip="Mute the soundboard" AutomationProperties.Name="Mute soundboard">
+                                ToolTip="Mute the soundboard everywhere, including your own headphones."
+                                AutomationProperties.Name="Mute soundboard">
                             <Button.Style>
                                 <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
                                     <Setter Property="Content" Value="&#xE767;"/>

@@ -160,10 +160,18 @@ public partial class MainWindow : Window
             var menu = new Forms.ContextMenuStrip();
             menu.Items.Add("Show Project Soundboard", null, (_, _) => ShowFromTray());
             menu.Items.Add(new Forms.ToolStripSeparator());
-            menu.Items.Add("Stop all sounds", null, (_, _) => _services.Engine.StopAll());
+            // These go through the view model rather than straight at the engine. Driving the
+            // engine directly left the window showing the opposite state, and — worse — the
+            // next press of the mute button then set the engine to what it already was, so
+            // it did nothing at all and you had to press it twice.
+            menu.Items.Add("Stop all sounds", null, (_, _) =>
+                Dispatcher.Invoke(() => _viewModel.StopAllCommand.Execute(null)));
             menu.Items.Add("Mute soundboard", null, (_, _) =>
-                _services.Engine.SetSoundboardMuted(!_services.Engine.SoundboardMuted));
-            menu.Items.Add("Toggle mic passthrough", null, (_, _) => _services.Microphone.Toggle());
+                Dispatcher.Invoke(() => _viewModel.ToggleSoundboardMuteCommand.Execute(null)));
+            menu.Items.Add("Mute everything to voice chat", null, (_, _) =>
+                Dispatcher.Invoke(() => _viewModel.ToggleVirtualMicMuteCommand.Execute(null)));
+            menu.Items.Add("Toggle mic passthrough", null, (_, _) =>
+                Dispatcher.Invoke(() => _viewModel.Microphone.TogglePassthroughCommand.Execute(null)));
             menu.Items.Add(new Forms.ToolStripSeparator());
             menu.Items.Add("Quit", null, (_, _) =>
             {

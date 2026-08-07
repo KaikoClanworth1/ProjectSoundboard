@@ -78,6 +78,10 @@ public enum HotkeyAction
     Random,
     MuteMicrophone,
     MuteSoundboard,
+
+    /// <summary>Cut everything going to the virtual mic — your voice and the soundboard.</summary>
+    MuteVirtualMic,
+
     TogglePassthrough,
     PushToTalk,
     VolumeUp,

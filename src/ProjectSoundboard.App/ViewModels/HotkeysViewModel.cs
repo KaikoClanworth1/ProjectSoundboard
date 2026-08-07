@@ -42,6 +42,7 @@ public sealed partial class HotkeyRowViewModel : ObservableObject
         HotkeyAction.Random => "Play a random sound",
         HotkeyAction.MuteMicrophone => "Mute microphone",
         HotkeyAction.MuteSoundboard => "Mute soundboard",
+        HotkeyAction.MuteVirtualMic => "Mute everything to voice chat",
         HotkeyAction.TogglePassthrough => "Toggle mic passthrough",
         HotkeyAction.PushToTalk => "Push to talk (hold)",
         HotkeyAction.VolumeUp => "Volume up",

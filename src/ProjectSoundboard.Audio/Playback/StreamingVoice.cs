@@ -40,6 +40,9 @@ public sealed class StreamingVoice : VoiceBase, IDisposable
     private long _startFrame;
     private long _endFrame = long.MaxValue;
 
+    /// <summary>Where the reported position wraps back to the start when looping.</summary>
+    private long _wrapFrame = long.MaxValue;
+
     private int _blockFrames;
     private int _blockPosition;
     private long _sourceFrame;
@@ -130,6 +133,11 @@ public sealed class StreamingVoice : VoiceBase, IDisposable
             Volatile.Write(ref _renderFrame, _startFrame);
 
             if (total > 0) SetTotalOutputFrames(Math.Min(_endFrame, total) - _startFrame);
+
+            // Trim point if there is one, otherwise the end of the file.
+            _wrapFrame = _endFrame == long.MaxValue
+                ? (total > 0 ? total : long.MaxValue)
+                : (total > 0 ? Math.Min(_endFrame, total) : _endFrame);
 
             Decode((int)(PrimeSeconds * SampleRate) * ChannelCount);
         }
@@ -306,7 +314,15 @@ public sealed class StreamingVoice : VoiceBase, IDisposable
         for (var c = 0; c < ChannelCount; c++) destination[c] = _block[offset + c];
 
         _blockPosition++;
-        Interlocked.Increment(ref _renderFrame);
+
+        // Wrap the reported position at the loop point. The decoder goes back to the start
+        // on its own, but this counter is the render side's, and left to itself it just
+        // kept climbing — so the transport clock ran past the end of the sound instead of
+        // returning to 0:00 each time round.
+        var frame = Interlocked.Increment(ref _renderFrame);
+        if (Settings.Loop && _wrapFrame != long.MaxValue && frame >= _wrapFrame)
+            Interlocked.Exchange(ref _renderFrame, _startFrame);
+
         return true;
     }
 

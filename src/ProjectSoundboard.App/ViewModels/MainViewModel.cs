@@ -553,27 +553,39 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     partial void OnSoundboardMutedChanged(bool value) => _services.Engine.SetSoundboardMuted(value);
 
+    /// <summary>
+    /// Cuts the whole feed to the virtual microphone — your voice and the soundboard both.
+    /// You still hear the sounds yourself; the call hears nothing.
+    /// </summary>
+    [ObservableProperty]
+    private bool _virtualMicMuted;
+
+    partial void OnVirtualMicMutedChanged(bool value) => _services.Engine.SetVirtualMicMuted(value);
+
+    [RelayCommand]
+    private void ToggleVirtualMicMute() => VirtualMicMuted = !VirtualMicMuted;
+
     [RelayCommand]
     public void Play(SoundViewModel? sound) => PlayCore(sound);
 
-    /// <summary>Play, reporting whether it actually started — shuffle needs to know.</summary>
-    private bool PlayCore(SoundViewModel? sound)
+    /// <summary>Play, handing back the handle — shuffle needs to follow that exact sound.</summary>
+    private PlaybackHandle? PlayCore(SoundViewModel? sound)
     {
-        if (sound is null) return false;
+        if (sound is null) return null;
 
         if (sound.IsMissing)
         {
             StatusMessage = $"'{sound.DisplayName}' is missing from disk.";
-            return false;
+            return null;
         }
 
         var handle = _services.Engine.Play(sound.Entry);
-        if (handle is null) return false;
+        if (handle is null) return null;
 
         _services.Library.RecordPlayed(sound.Entry);
         sound.RefreshAll();
         SyncPlayingState();
-        return true;
+        return handle;
     }
 
     [RelayCommand]
@@ -618,7 +630,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private readonly List<string> _shuffleBag = new();
 
     private string? _shuffleScope;
-    private bool _advancingShuffle;
+
+    /// <summary>The sound shuffle is currently on, so we know exactly what to wait for.</summary>
+    private PlaybackHandle? _shuffleHandle;
 
     [ObservableProperty]
     private bool _shuffleEnabled;
@@ -628,6 +642,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     partial void OnShuffleEnabledChanged(bool value)
     {
+        DetachShuffleHandle();
         if (!value) return;
 
         _shuffleBag.Clear();
@@ -675,11 +690,46 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             if (next is null) continue;
 
             SelectedSound = next;
-            if (PlayCore(next)) return;
+
+            if (PlayCore(next) is { } handle)
+            {
+                // Follow this exact handle rather than matching on the sound's id. Ids let
+                // any other sound that happened to be playing decide when shuffle moved on,
+                // and shuffle was cutting tracks off after a few seconds because of it.
+                _shuffleHandle = handle;
+                handle.Completed += OnShuffleSoundCompleted;
+
+                Log.Debug($"Shuffle -> '{next.DisplayName}' ({_shuffleBag.Count} left of {pool.Count})");
+                return;
+            }
         }
 
         ShuffleEnabled = false;
         StatusMessage = "Shuffle stopped — nothing here could be played.";
+    }
+
+    /// <summary>
+    /// The sound shuffle was playing has ended. Raised on the audio thread, so hop back to
+    /// the interface thread before touching anything.
+    /// </summary>
+    private void OnShuffleSoundCompleted(object? sender, EventArgs e)
+    {
+        if (sender is PlaybackHandle handle) handle.Completed -= OnShuffleSoundCompleted;
+
+        Dispatch(() =>
+        {
+            // Ignore a late completion from a sound shuffle has already moved on from.
+            if (!ShuffleEnabled || !ReferenceEquals(sender, _shuffleHandle)) return;
+
+            _shuffleHandle = null;
+            AdvanceShuffle();
+        });
+    }
+
+    private void DetachShuffleHandle()
+    {
+        if (_shuffleHandle is not null) _shuffleHandle.Completed -= OnShuffleSoundCompleted;
+        _shuffleHandle = null;
     }
 
     private void Refill(IReadOnlyList<SoundViewModel> pool)
@@ -790,14 +840,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
         RefreshLoopState();
 
-        // Everything has gone quiet, so shuffle moves on. The guard matters because starting
-        // the next sound comes straight back through here.
-        if (ShuffleEnabled && active.Count == 0 && !_advancingShuffle)
-        {
-            _advancingShuffle = true;
-            try { AdvanceShuffle(); }
-            finally { _advancingShuffle = false; }
-        }
+        // Shuffle does not advance from here. It waits on the completion of the exact handle
+        // it started, which is the only thing that reliably means "that sound has finished".
     }
 
     // -----------------------------------------------------------------------
@@ -1118,6 +1162,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             case HotkeyAction.Previous: PlayPrevious(); break;
             case HotkeyAction.Random: PlayRandom(); break;
             case HotkeyAction.MuteSoundboard: ToggleSoundboardMute(); break;
+            case HotkeyAction.MuteVirtualMic: ToggleVirtualMicMute(); break;
 
             case HotkeyAction.MuteMicrophone:
                 Microphone.Muted = !Microphone.Muted;

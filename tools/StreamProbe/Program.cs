@@ -38,6 +38,15 @@ internal static class Program
             return 0;
         }
 
+        if (args[0] == "--loopclock")
+        {
+            Console.WriteLine("mode: LOOP CLOCK (reported position must return to 0 each pass)");
+            Console.WriteLine();
+
+            foreach (var path in args.Skip(1)) LoopClockProbe(path);
+            return 0;
+        }
+
         if (args[0] == "--loop")
         {
             Console.WriteLine("mode: LOOP (SetLoop while playing, what the loop button drives)");
@@ -132,6 +141,45 @@ internal static class Program
             $"starvations={voice.Starvations}{(endedEarly ? " ENDED-EARLY" : "")}");
 
         return ok;
+    }
+
+    /// <summary>
+    /// Loops a one-second region and watches the position the transport bar reads. It has to
+    /// sawtooth back to zero on each pass, not keep climbing past the length of the sound.
+    /// </summary>
+    private static void LoopClockProbe(string path)
+    {
+        var format = WaveFormat.CreateIeeeFloatWaveFormat(SampleRate, Channels);
+        var settings = new VoiceSettings { Volume = 1f, TrimEndMs = 1000, Loop = true };
+
+        using var voice = new StreamingVoice(path, settings, format);
+
+        const int frames = SampleRate / 100;
+        var buffer = new float[frames * Channels];
+        var positions = new List<double>();
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+
+        for (var b = 0; b < 320; b++)   // 3.2 s, so at least three passes
+        {
+            voice.Read(buffer, 0, buffer.Length);
+            if (b % 25 == 0) positions.Add(voice.PositionSeconds);
+
+            var due = TimeSpan.FromMilliseconds((b + 1) * 10);
+            var wait = due - clock.Elapsed;
+            if (wait > TimeSpan.Zero) Thread.Sleep(wait);
+        }
+
+        var max = positions.Max();
+        var wraps = positions.Zip(positions.Skip(1), (a, c) => c < a - 0.1).Count(x => x);
+
+        // Two things have to hold: it never reads past the one-second region, and it visibly
+        // goes backwards at least twice in 3.2 s.
+        var ok = max <= 1.1 && wraps >= 2;
+
+        Console.WriteLine(
+            $"{(ok ? "PASS" : "FAIL")}  {Path.GetFileName(path),-46}  " +
+            $"max={max:F2}s wraps={wraps}");
+        Console.WriteLine("        " + string.Join(" ", positions.Select(p => $"{p:F2}")));
     }
 
     /// <summary>

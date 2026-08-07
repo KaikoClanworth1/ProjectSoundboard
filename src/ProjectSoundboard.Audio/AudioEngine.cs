@@ -368,6 +368,27 @@ public sealed class AudioEngine : IDisposable
         PlaybackChanged?.Invoke(this, EventArgs.Empty);
     }
 
+    /// <summary>
+    /// Everything currently going out to the virtual microphone — the soundboard *and* the
+    /// user's own voice.
+    ///
+    /// This is deliberately a different thing from muting the microphone. Muting the mic
+    /// stops your voice while the soundboard keeps playing into the call; this stops the
+    /// whole feed, so the call hears nothing at all, while your own headphones carry on
+    /// exactly as before. It is the "hold on a moment" control.
+    /// </summary>
+    public bool VirtualMicMuted
+    {
+        get => VirtualMicBus.Muted;
+        private set => VirtualMicBus.Muted = value;
+    }
+
+    public void SetVirtualMicMuted(bool muted)
+    {
+        VirtualMicMuted = muted;
+        PlaybackChanged?.Invoke(this, EventArgs.Empty);
+    }
+
     /// <summary>Master volume, 0..1, applied to both buses immediately.</summary>
     public void SetMasterVolume(float volume)
     {
