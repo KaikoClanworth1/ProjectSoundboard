@@ -16,7 +16,28 @@
             <TextBlock Text="Hotkeys" Style="{StaticResource PageTitle}"/>
             <TextBlock Style="{StaticResource SecondaryText}" TextWrapping="Wrap" MaxWidth="720"
                        HorizontalAlignment="Left"
-                       Text="These work anywhere in Windows, even while a game has focus. Bind a key to a single sound from the sound's right-click menu, or add general controls here."/>
+                       Text="These work anywhere in Windows, even while a game has focus. Bind a key to a single sound from the sound's right-click menu, or add general controls here. Everything you have bound is listed below."/>
+
+            <Grid Margin="0,14,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBox Grid.Column="0" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                         Padding="9,7" MaxWidth="420" HorizontalAlignment="Left" MinWidth="280"
+                         ToolTip="Search by sound, action or key"
+                         AutomationProperties.Name="Search keybinds"/>
+
+                <Button Grid.Column="1" Content="Clear" Margin="8,0,0,0" Padding="12,7"
+                        Command="{Binding ClearSearchCommand}"
+                        Visibility="{Binding SearchText, Converter={StaticResource EmptyStringToVisibility}}"
+                        AutomationProperties.Name="Clear keybind search"/>
+
+                <TextBlock Grid.Column="2" Text="{Binding SummaryText}" Margin="14,0,0,0"
+                           VerticalAlignment="Center" Style="{StaticResource MutedText}"/>
+            </Grid>
         </StackPanel>
 
         <Border Grid.Row="1" Background="{DynamicResource WarningBrush}" CornerRadius="10" Padding="12,9"
@@ -52,7 +73,7 @@
                                    Margin="0,12,0,0" HorizontalAlignment="Center"/>
                         <TextBlock Style="{StaticResource SecondaryText}" TextWrapping="Wrap"
                                    TextAlignment="Center" Margin="0,6,0,0"
-                                   Text="Add one below, or right-click a sound and choose “Assign a hotkey” to bind a key straight to it."/>
+                                   Text="Add one below, or right-click a sound and choose “Set keybind” to bind a key straight to it."/>
                     </StackPanel>
 
                     <ScrollViewer VerticalScrollBarVisibility="Auto">

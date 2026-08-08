@@ -19,6 +19,7 @@ public sealed class AppServices : IDisposable
     public static bool IsInitialised => _instance is not null;
 
     public SettingsService Settings { get; }
+    public PresetService Presets { get; }
     public LibraryService Library { get; }
     public SearchService Search { get; }
     public ImportService Import { get; }
@@ -40,6 +41,8 @@ public sealed class AppServices : IDisposable
 
         Settings = new SettingsService();
         Settings.Load();
+
+        Presets = new PresetService(Settings);
 
         Library = new LibraryService(Settings);
         Library.Load();

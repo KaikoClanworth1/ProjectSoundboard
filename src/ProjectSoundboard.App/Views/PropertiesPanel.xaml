@@ -109,6 +109,30 @@
                     <TextBox Text="{Binding TagsText, UpdateSourceTrigger=LostFocus}"
                              ToolTip="Comma separated" AutomationProperties.Name="Tags"/>
 
+                    <TextBlock Text="Keybind" Style="{StaticResource FieldLabel}" Margin="0,12,0,5"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- No AutomationProperties.Name on the value: it would replace the
+                             text, so a screen reader would say "keybind" and never say which
+                             key. The label above supplies the context instead. -->
+                        <Border Grid.Column="0" Padding="9,6" CornerRadius="6"
+                                Background="{DynamicResource SurfaceAltBrush}"
+                                BorderBrush="{DynamicResource BorderBrushSoft}" BorderThickness="1"
+                                AutomationProperties.Name="Keybind for this sound">
+                            <TextBlock Text="{Binding HotkeyText}" VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis"/>
+                        </Border>
+
+                        <Button Grid.Column="1" Content="Change…" Margin="8,0,0,0" Padding="12,6"
+                                Command="{Binding SetHotkeyCommand}"
+                                ToolTip="Press a key combination to trigger this sound from anywhere"
+                                AutomationProperties.Name="Change keybind"/>
+                    </Grid>
+
                     <!-- ==================================================== -->
                     <!-- Transport + waveform                                  -->
                     <!-- ==================================================== -->

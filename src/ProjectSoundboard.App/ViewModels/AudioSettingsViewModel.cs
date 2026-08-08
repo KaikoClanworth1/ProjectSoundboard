@@ -19,12 +19,152 @@ public sealed partial class AudioSettingsViewModel : ObservableObject
         _services = services;
         LoadFromSettings();
         RefreshDevices();
+        RefreshPresets();
     }
 
     public ObservableCollection<AudioDeviceInfo> OutputDevices { get; } = new();
 
     public IReadOnlyList<int> SampleRates { get; } = new[] { 44100, 48000, 96000 };
     public IReadOnlyList<string> EqBandNames => Equalizer.BandNames;
+
+    // -----------------------------------------------------------------------
+    // Presets
+    // -----------------------------------------------------------------------
+
+    public ObservableCollection<PresetViewModel> Presets { get; } = new();
+
+    [ObservableProperty] private PresetViewModel? _selectedPreset;
+
+    public void RefreshPresets()
+    {
+        var activeId = _services.Settings.Settings.ActivePresetId;
+
+        Presets.Clear();
+        foreach (var preset in _services.Presets.Presets)
+            Presets.Add(new PresetViewModel(preset, preset.Id == activeId, DeviceMissing(preset)));
+
+        SelectedPreset = Presets.FirstOrDefault(p => p.Preset.Id == activeId);
+        OnPropertyChanged(nameof(HasPresets));
+    }
+
+    public bool HasPresets => Presets.Count > 0;
+
+    /// <summary>Devices a preset points at that are not plugged in, for the warning line.</summary>
+    private string? DeviceMissing(Core.Models.DevicePreset preset)
+    {
+        var outputs = _services.Devices.GetDevices(DeviceKind.Output);
+        var inputs = _services.Devices.GetDevices(DeviceKind.Input);
+
+        var gone = new List<string>();
+
+        if (preset.VirtualMicDeviceId is { } vm && outputs.All(d => d.Id != vm))
+            gone.Add(preset.VirtualMicDeviceName ?? "virtual mic output");
+
+        if (preset.MonitorDeviceId is { } mon && outputs.All(d => d.Id != mon))
+            gone.Add(preset.MonitorDeviceName ?? "monitor output");
+
+        if (preset.MicInputDeviceId is { } mic && inputs.All(d => d.Id != mic))
+            gone.Add(preset.MicInputDeviceName ?? "microphone");
+
+        return gone.Count == 0 ? null : $"Not connected: {string.Join(", ", gone)}";
+    }
+
+    private string? DeviceName(string? id)
+    {
+        if (id is null) return null;
+
+        return _services.Devices.GetDevices(DeviceKind.Output).FirstOrDefault(d => d.Id == id)?.Name
+               ?? _services.Devices.GetDevices(DeviceKind.Input).FirstOrDefault(d => d.Id == id)?.Name;
+    }
+
+    [RelayCommand]
+    private void SavePreset()
+    {
+        var dialog = new Views.TextPromptWindow(
+            "Save these settings as a preset",
+            "Name — for example VRChat, Discord, or Streaming",
+            SuggestPresetName())
+        {
+            Owner = System.Windows.Application.Current?.MainWindow
+        };
+
+        if (dialog.ShowDialog() != true || string.IsNullOrWhiteSpace(dialog.Value)) return;
+
+        var preset = _services.Presets.Add(dialog.Value, DeviceName);
+        RefreshPresets();
+
+        StatusText = $"Saved '{preset.Name}'.";
+    }
+
+    private string SuggestPresetName()
+    {
+        var n = Presets.Count + 1;
+        return Presets.Any(p => p.Name == "Preset " + n) ? $"Preset {n + 1}" : $"Preset {n}";
+    }
+
+    [RelayCommand]
+    private void ApplyPreset(PresetViewModel? preset)
+    {
+        preset ??= SelectedPreset;
+        if (preset is null) return;
+
+        _services.Presets.Apply(preset.Preset);
+
+        // Bring the page and the audio stack in line with what was just written.
+        LoadFromSettings();
+        RefreshDevices();
+        _services.StartAudio();
+
+        RefreshPresets();
+        StatusText = $"'{preset.Name}' applied.";
+    }
+
+    [RelayCommand]
+    private void UpdatePreset(PresetViewModel? preset)
+    {
+        preset ??= SelectedPreset;
+        if (preset is null) return;
+
+        _services.Presets.UpdateFromCurrent(preset.Preset, DeviceName);
+        RefreshPresets();
+
+        StatusText = $"'{preset.Name}' now matches the current settings.";
+    }
+
+    [RelayCommand]
+    private void RenamePreset(PresetViewModel? preset)
+    {
+        preset ??= SelectedPreset;
+        if (preset is null) return;
+
+        var dialog = new Views.TextPromptWindow("Rename preset", "Name", preset.Name)
+        {
+            Owner = System.Windows.Application.Current?.MainWindow
+        };
+
+        if (dialog.ShowDialog() != true || string.IsNullOrWhiteSpace(dialog.Value)) return;
+
+        _services.Presets.Rename(preset.Preset, dialog.Value);
+        RefreshPresets();
+    }
+
+    [RelayCommand]
+    private void DeletePreset(PresetViewModel? preset)
+    {
+        preset ??= SelectedPreset;
+        if (preset is null) return;
+
+        var confirm = System.Windows.MessageBox.Show(
+            $"Delete the preset '{preset.Name}'?\n\nYour current audio settings are not changed.",
+            "Delete preset",
+            System.Windows.MessageBoxButton.OKCancel,
+            System.Windows.MessageBoxImage.Question);
+
+        if (confirm != System.Windows.MessageBoxResult.OK) return;
+
+        _services.Presets.Delete(preset.Preset);
+        RefreshPresets();
+    }
 
     // ---- devices ----------------------------------------------------------
 

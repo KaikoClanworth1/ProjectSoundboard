@@ -61,8 +61,11 @@
             <MenuItem Header="Add to / remove from favourites"
                       Command="{Binding PlacementTarget.Tag.ToggleFavoriteCommand,
                                 RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
-            <MenuItem Header="Assign a hotkey…"
-                      Command="{Binding PlacementTarget.Tag.AssignHotkeyCommand,
+            <MenuItem Header="Set keybind…"
+                      Command="{Binding PlacementTarget.Tag.SetSoundHotkeyCommand,
+                                RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+            <MenuItem Header="Show all keybinds"
+                      Command="{Binding PlacementTarget.Tag.ShowHotkeysForCommand,
                                 RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
             <Separator Background="{DynamicResource BorderBrushSoft}" Height="1" Margin="6,4"/>
             <MenuItem Header="Move to group…"

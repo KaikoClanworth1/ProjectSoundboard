@@ -598,6 +598,71 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         return handle;
     }
 
+    // -----------------------------------------------------------------------
+    // Per-sound keybinds
+    // -----------------------------------------------------------------------
+
+    /// <summary>The binding that plays <paramref name="soundId"/>, if it has one.</summary>
+    public HotkeyBinding? HotkeyFor(string soundId) =>
+        _services.Settings.Settings.Hotkeys.FirstOrDefault(
+            b => b.Action == HotkeyAction.PlaySound &&
+                 string.Equals(b.SoundId, soundId, StringComparison.Ordinal));
+
+    /// <summary>Printable keybind for a sound, or null when it has none.</summary>
+    public string? HotkeyTextFor(string soundId)
+    {
+        var binding = HotkeyFor(soundId);
+        return binding is { VirtualKey: not 0 } ? binding.ToString() : null;
+    }
+
+    /// <summary>
+    /// Ask for a key and put it on this sound. Assigning from the sound itself is the way
+    /// round anyone actually wants — the hotkeys page is for looking them all up afterwards.
+    /// </summary>
+    [RelayCommand]
+    public void SetSoundHotkey(SoundViewModel? sound)
+    {
+        if (sound is null) return;
+
+        var existing = HotkeyFor(sound.Id);
+
+        var dialog = new Views.HotkeyPromptWindow(_services, sound.DisplayName, existing)
+        {
+            Owner = Application.Current?.MainWindow
+        };
+
+        if (dialog.ShowDialog() != true) return;
+
+        if (dialog.Cleared)
+        {
+            if (existing is not null) _services.Settings.Settings.Hotkeys.Remove(existing);
+            StatusMessage = $"Keybind removed from '{sound.DisplayName}'.";
+        }
+        else
+        {
+            var binding = existing;
+            if (binding is null)
+            {
+                binding = new HotkeyBinding { Action = HotkeyAction.PlaySound, SoundId = sound.Id };
+                _services.Settings.Settings.Hotkeys.Add(binding);
+            }
+
+            binding.VirtualKey = dialog.VirtualKey;
+            binding.Modifiers = dialog.Modifiers;
+            binding.Enabled = true;
+
+            StatusMessage = $"{binding} plays '{sound.DisplayName}'.";
+        }
+
+        _services.Settings.Save();
+        _services.Hotkeys.RegisterAll();
+
+        // The lookup page and the details panel both show this, so keep them honest.
+        Hotkeys.Reload();
+        Properties.RefreshHotkey();
+        sound.RefreshAll();
+    }
+
     [RelayCommand]
     private void StopSound(SoundViewModel? sound)
     {
@@ -1081,15 +1146,16 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         await Views.ImportFlow.RunAsync(owner, _services, dialog.FileNames, this);
     }
 
-    /// <summary>Create a hotkey bound to this sound and jump to the hotkeys page to capture it.</summary>
+    /// <summary>
+    /// Show every keybind, with this sound's already found. For when you want the whole
+    /// list rather than the one sound.
+    /// </summary>
     [RelayCommand]
-    private void AssignHotkey(SoundViewModel? sound)
+    private void ShowHotkeysFor(SoundViewModel? sound)
     {
-        if (sound is null) return;
-
-        var row = Hotkeys.AddForSound(sound);
+        Hotkeys.Reload();
+        Hotkeys.SearchText = sound?.DisplayName ?? string.Empty;
         CurrentPage = NavPage.Hotkeys;
-        Hotkeys.BeginCaptureCommand.Execute(row);
     }
 
     [RelayCommand]

@@ -67,6 +67,29 @@ public sealed partial class PropertiesViewModel : ObservableObject, IDisposable
 
     public BitmapSource? Thumbnail => Sound?.Thumbnail;
 
+    // ---- keybind ----------------------------------------------------------
+
+    /// <summary>The keybind on this sound, shown on its own row so it is not hidden away.</summary>
+    public string HotkeyText =>
+        Sound is null ? "—" : _main.HotkeyTextFor(Sound.Id) ?? "Not set";
+
+    public bool HasHotkey => Sound is not null && _main.HotkeyTextFor(Sound.Id) is not null;
+
+    [RelayCommand]
+    private void SetHotkey()
+    {
+        if (Sound is null) return;
+
+        _main.SetSoundHotkey(Sound);
+        RefreshHotkey();
+    }
+
+    public void RefreshHotkey()
+    {
+        OnPropertyChanged(nameof(HotkeyText));
+        OnPropertyChanged(nameof(HasHotkey));
+    }
+
     /// <summary>Load a sound into the panel, or clear it when null.</summary>
     public void Load(SoundViewModel? sound)
     {
@@ -104,6 +127,7 @@ public sealed partial class PropertiesViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(HasSound));
         OnPropertyChanged(nameof(Thumbnail));
         OnPropertyChanged(nameof(AvailableGroups));
+        RefreshHotkey();
 
         LoadWaveform(entry.FilePath);
     }

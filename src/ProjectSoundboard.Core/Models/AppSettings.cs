@@ -26,6 +26,12 @@ public sealed class AppSettings
     public AdvancedSettings Advanced { get; set; } = new();
 
     public List<HotkeyBinding> Hotkeys { get; set; } = new();
+
+    /// <summary>Named routing setups — see <see cref="DevicePreset"/>.</summary>
+    public List<DevicePreset> Presets { get; set; } = new();
+
+    /// <summary>The preset last applied, so the page can show which one is in use.</summary>
+    public string? ActivePresetId { get; set; }
 }
 
 public sealed class GeneralSettings

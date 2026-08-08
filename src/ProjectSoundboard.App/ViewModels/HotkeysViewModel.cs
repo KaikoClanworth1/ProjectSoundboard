@@ -95,6 +95,9 @@ public sealed partial class HotkeysViewModel : ObservableObject
         Reload();
     }
 
+    /// <summary>Everything, unfiltered. <see cref="Rows"/> is what the page shows.</summary>
+    private readonly List<HotkeyRowViewModel> _all = new();
+
     public ObservableCollection<HotkeyRowViewModel> Rows { get; } = new();
 
     public IReadOnlyList<HotkeyAction> Actions { get; } =
@@ -104,9 +107,27 @@ public sealed partial class HotkeysViewModel : ObservableObject
     [ObservableProperty] private string _statusText = string.Empty;
     [ObservableProperty] private int _conflictCount;
 
+    /// <summary>
+    /// Filters the list. With a keybind per sound this page becomes the place you go to
+    /// find out what is bound to what, and scrolling a few hundred rows is no way to do it.
+    /// </summary>
+    [ObservableProperty] private string _searchText = string.Empty;
+
+    partial void OnSearchTextChanged(string value) => ApplyFilter();
+
+    /// <summary>How many of the bindings are per-sound, shown as a count on the page.</summary>
+    public int SoundBindingCount => _all.Count(r => r.Action == HotkeyAction.PlaySound);
+
+    public int TotalCount => _all.Count;
+
+    public string SummaryText =>
+        Rows.Count == _all.Count
+            ? $"{_all.Count} keybind{(_all.Count == 1 ? "" : "s")}, {SoundBindingCount} on sounds"
+            : $"{Rows.Count} of {_all.Count} keybinds";
+
     public void Reload()
     {
-        Rows.Clear();
+        _all.Clear();
 
         foreach (var binding in _services.Settings.Settings.Hotkeys)
         {
@@ -114,11 +135,38 @@ public sealed partial class HotkeysViewModel : ObservableObject
                 ? null
                 : _services.Library.GetById(binding.SoundId)?.DisplayName;
 
-            Rows.Add(new HotkeyRowViewModel(binding, this, soundName));
+            _all.Add(new HotkeyRowViewModel(binding, this, soundName));
         }
 
+        ApplyFilter();
         RefreshConflicts();
     }
+
+    /// <summary>Match on what is written on the row: the action, the sound and the keys.</summary>
+    private void ApplyFilter()
+    {
+        var query = SearchText?.Trim();
+
+        Rows.Clear();
+
+        foreach (var row in _all)
+        {
+            if (!string.IsNullOrEmpty(query) && !Matches(row, query)) continue;
+            Rows.Add(row);
+        }
+
+        OnPropertyChanged(nameof(SummaryText));
+        OnPropertyChanged(nameof(TotalCount));
+        OnPropertyChanged(nameof(SoundBindingCount));
+    }
+
+    private static bool Matches(HotkeyRowViewModel row, string query) =>
+        row.ActionText.Contains(query, StringComparison.OrdinalIgnoreCase)
+        || (row.SoundName?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false)
+        || row.KeyText.Contains(query, StringComparison.OrdinalIgnoreCase);
+
+    [RelayCommand]
+    private void ClearSearch() => SearchText = string.Empty;
 
     private void RefreshConflicts()
     {
@@ -126,7 +174,7 @@ public sealed partial class HotkeysViewModel : ObservableObject
             .Select(c => c.Id)
             .ToHashSet(StringComparer.Ordinal);
 
-        foreach (var row in Rows) row.HasConflict = conflicts.Contains(row.Binding.Id);
+        foreach (var row in _all) row.HasConflict = conflicts.Contains(row.Binding.Id);
 
         ConflictCount = conflicts.Count;
         StatusText = ConflictCount == 0
@@ -149,7 +197,11 @@ public sealed partial class HotkeysViewModel : ObservableObject
         _services.Settings.Settings.Hotkeys.Add(binding);
 
         var row = new HotkeyRowViewModel(binding, this, null);
-        Rows.Add(row);
+        _all.Add(row);
+
+        // A new row must not land behind the current filter, or it looks like nothing happened.
+        SearchText = string.Empty;
+        ApplyFilter();
 
         Persist();
         BeginCapture(row);
@@ -167,7 +219,8 @@ public sealed partial class HotkeysViewModel : ObservableObject
         _services.Settings.Settings.Hotkeys.Add(binding);
 
         var row = new HotkeyRowViewModel(binding, this, sound.DisplayName);
-        Rows.Add(row);
+        _all.Add(row);
+        ApplyFilter();
 
         Persist();
         return row;
@@ -179,7 +232,9 @@ public sealed partial class HotkeysViewModel : ObservableObject
         if (row is null) return;
 
         _services.Settings.Settings.Hotkeys.Remove(row.Binding);
+        _all.Remove(row);
         Rows.Remove(row);
+        OnPropertyChanged(nameof(SummaryText));
 
         if (CapturingRow == row) CapturingRow = null;
         Persist();
@@ -229,7 +284,8 @@ public sealed partial class HotkeysViewModel : ObservableObject
 
         if (IsModifierKey(virtualKey)) return true;
 
-        var duplicate = Rows.FirstOrDefault(r =>
+        // Against everything, not just what the filter happens to be showing.
+        var duplicate = _all.FirstOrDefault(r =>
             r != row && r.Binding.VirtualKey == virtualKey && r.Binding.Modifiers == modifiers);
 
         if (duplicate is not null)

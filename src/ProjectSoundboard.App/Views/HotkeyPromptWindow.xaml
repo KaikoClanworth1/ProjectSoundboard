@@ -1,0 +1,40 @@
+<Window x:Class="ProjectSoundboard.App.Views.HotkeyPromptWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        SizeToContent="Height" Width="430" FontFamily="Segoe UI"
+        Foreground="{DynamicResource TextPrimaryBrush}">
+
+    <Border Background="{DynamicResource SurfaceBrush}" CornerRadius="14" Padding="22"
+            BorderBrush="{DynamicResource BorderBrushStrong}" BorderThickness="1"
+            Margin="12" Effect="{DynamicResource PopupShadow}">
+        <StackPanel>
+            <TextBlock x:Name="TitleText" FontSize="16" FontWeight="SemiBold"
+                       TextTrimming="CharacterEllipsis"/>
+
+            <TextBlock Text="Press the keys you want to use. Esc cancels."
+                       Style="{StaticResource MutedText}" Margin="0,6,0,0" TextWrapping="Wrap"/>
+
+            <Border Margin="0,16,0,0" Padding="16,18" CornerRadius="10"
+                    Background="{DynamicResource AccentSoftBrush}"
+                    BorderBrush="{DynamicResource BorderBrushSoft}" BorderThickness="1">
+                <TextBlock x:Name="KeyText" Text="Waiting for a key…" FontSize="17"
+                           FontWeight="SemiBold" HorizontalAlignment="Center"
+                           TextTrimming="CharacterEllipsis"
+                           AutomationProperties.Name="Chosen key combination"/>
+            </Border>
+
+            <TextBlock x:Name="ProblemText" Foreground="{DynamicResource DangerBrush}"
+                       Margin="0,10,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
+                <Button x:Name="ClearButton" Content="Remove" Width="94" Click="OnClear"
+                        ToolTip="Take the keybind off this sound"/>
+                <Button Content="Cancel" Width="94" Margin="8,0,0,0" IsCancel="True" Click="OnCancel"/>
+                <Button x:Name="AcceptButton" Content="Save" Width="94" Margin="8,0,0,0"
+                        IsEnabled="False" Style="{StaticResource PrimaryButton}" Click="OnAccept"/>
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</Window>
