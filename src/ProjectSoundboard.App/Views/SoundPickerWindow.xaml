@@ -1,0 +1,69 @@
+<Window x:Class="ProjectSoundboard.App.Views.SoundPickerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Choose a sound"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        SizeToContent="Height" Width="480" MaxHeight="620"
+        FontFamily="Segoe UI" Foreground="{DynamicResource TextPrimaryBrush}">
+
+    <Border Background="{DynamicResource SurfaceBrush}" CornerRadius="14" Padding="22"
+            BorderBrush="{DynamicResource BorderBrushStrong}" BorderThickness="1"
+            Margin="12" Effect="{DynamicResource PopupShadow}">
+        <StackPanel>
+            <TextBlock Text="Choose a sound" FontSize="17" FontWeight="SemiBold"/>
+            <TextBlock Text="Pick the sound this keybind should play, then press the keys."
+                       Style="{StaticResource SecondaryText}" Margin="0,7,0,0" TextWrapping="Wrap"/>
+
+            <TextBox x:Name="SearchBox" Margin="0,14,0,0" Padding="9,7"
+                     TextChanged="OnSearchChanged"
+                     ToolTip="Search by name, file name or tag"
+                     AutomationProperties.Name="Search sounds"/>
+
+            <Border Style="{StaticResource InlineCard}" Margin="0,10,0,0" MaxHeight="320" Padding="4">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <ListBox x:Name="SoundList" Background="Transparent" BorderThickness="0"
+                             DisplayMemberPath="DisplayName"
+                             MouseDoubleClick="OnDoubleClick"
+                             AutomationProperties.Name="Sounds">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="Padding" Value="10,7"/>
+                                <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+                                <Setter Property="Cursor" Value="Hand"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListBoxItem">
+                                            <Border x:Name="Bd" Background="Transparent" CornerRadius="7"
+                                                    Padding="{TemplateBinding Padding}" Margin="2,1">
+                                                <ContentPresenter/>
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="Bd" Property="Background"
+                                                            Value="{DynamicResource HoverBrush}"/>
+                                                </Trigger>
+                                                <Trigger Property="IsSelected" Value="True">
+                                                    <Setter TargetName="Bd" Property="Background"
+                                                            Value="{DynamicResource AccentSoftBrush}"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                    </ListBox>
+                </ScrollViewer>
+            </Border>
+
+            <TextBlock x:Name="CountText" Style="{StaticResource MutedText}" Margin="2,8,0,0"/>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+                <Button Content="Cancel" Width="94" IsCancel="True" Click="OnCancel"/>
+                <Button x:Name="AcceptButton" Content="Next" Width="104" Margin="8,0,0,0" IsDefault="True"
+                        Style="{StaticResource PrimaryButton}" Click="OnAccept"/>
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</Window>

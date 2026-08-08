@@ -623,42 +623,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public void SetSoundHotkey(SoundViewModel? sound)
     {
         if (sound is null) return;
+        if (!Hotkeys.AssignTo(sound.Id, sound.DisplayName)) return;
 
-        var existing = HotkeyFor(sound.Id);
+        StatusMessage = Hotkeys.StatusText;
 
-        var dialog = new Views.HotkeyPromptWindow(_services, sound.DisplayName, existing)
-        {
-            Owner = Application.Current?.MainWindow
-        };
-
-        if (dialog.ShowDialog() != true) return;
-
-        if (dialog.Cleared)
-        {
-            if (existing is not null) _services.Settings.Settings.Hotkeys.Remove(existing);
-            StatusMessage = $"Keybind removed from '{sound.DisplayName}'.";
-        }
-        else
-        {
-            var binding = existing;
-            if (binding is null)
-            {
-                binding = new HotkeyBinding { Action = HotkeyAction.PlaySound, SoundId = sound.Id };
-                _services.Settings.Settings.Hotkeys.Add(binding);
-            }
-
-            binding.VirtualKey = dialog.VirtualKey;
-            binding.Modifiers = dialog.Modifiers;
-            binding.Enabled = true;
-
-            StatusMessage = $"{binding} plays '{sound.DisplayName}'.";
-        }
-
-        _services.Settings.Save();
-        _services.Hotkeys.RegisterAll();
-
-        // The lookup page and the details panel both show this, so keep them honest.
-        Hotkeys.Reload();
+        // The details panel shows this too, so keep it honest.
         Properties.RefreshHotkey();
         sound.RefreshAll();
     }
@@ -870,9 +839,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         get
         {
+            // The selection wins. It used to take whichever sound happened to be playing
+            // first, which is arbitrary once more than one is going — so the button could
+            // set looping on one sound while showing the state of another, and every
+            // playback change re-evaluated it and flipped the light back off.
+            if (SelectedSound is { } selected) return selected;
+
             var playing = _services.Engine.Active.FirstOrDefault();
-            if (playing is not null && FindViewModel(playing.SoundId) is { } vm) return vm;
-            return SelectedSound;
+            return playing is not null ? FindViewModel(playing.SoundId) : null;
         }
     }
 

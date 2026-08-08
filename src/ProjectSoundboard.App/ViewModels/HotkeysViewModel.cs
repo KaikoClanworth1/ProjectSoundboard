@@ -177,10 +177,32 @@ public sealed partial class HotkeysViewModel : ObservableObject
         foreach (var row in _all) row.HasConflict = conflicts.Contains(row.Binding.Id);
 
         ConflictCount = conflicts.Count;
+
+        // A key that was taken from the whole machine is a bigger deal than a clash, so it
+        // gets said first and in full.
+        var disabled = _services.Hotkeys.Disabled;
+        DisabledCount = disabled.Count;
+
+        if (disabled.Count > 0)
+        {
+            var names = string.Join(", ", disabled.Select(d => d.ToString()));
+            DisabledText =
+                $"Switched off: {names}. A key with no Ctrl, Alt or Win is taken from every " +
+                "other application while Project Soundboard is open — that is why it seemed " +
+                "to stop working elsewhere. Give it a modifier and switch it back on.";
+        }
+        else
+        {
+            DisabledText = string.Empty;
+        }
+
         StatusText = ConflictCount == 0
             ? string.Empty
             : $"{ConflictCount} hotkey(s) are already used by another application and were not registered.";
     }
+
+    [ObservableProperty] private int _disabledCount;
+    [ObservableProperty] private string _disabledText = string.Empty;
 
     /// <summary>Write the bindings back and re-register them with Windows.</summary>
     public void Persist()
@@ -224,6 +246,68 @@ public sealed partial class HotkeysViewModel : ObservableObject
 
         Persist();
         return row;
+    }
+
+    /// <summary>
+    /// Pick a sound, then a key. The other direction — starting from the sound — is the
+    /// context menu; this is here for when you are already looking at the list.
+    /// </summary>
+    [RelayCommand]
+    private void AddSoundHotkey()
+    {
+        var picker = new Views.SoundPickerWindow(_services)
+        {
+            Owner = System.Windows.Application.Current?.MainWindow
+        };
+
+        if (picker.ShowDialog() != true || picker.Selected is not { } entry) return;
+
+        if (AssignTo(entry.Id, entry.DisplayName)) SearchText = entry.DisplayName;
+    }
+
+    /// <summary>
+    /// Ask for a key and put it on a sound, replacing whatever that sound already had.
+    /// Shared with the sound's own context menu so both routes behave identically — the old
+    /// one added a second binding every time instead of editing the one already there.
+    /// </summary>
+    public bool AssignTo(string soundId, string displayName)
+    {
+        var existing = _services.Settings.Settings.Hotkeys.FirstOrDefault(
+            b => b.Action == HotkeyAction.PlaySound &&
+                 string.Equals(b.SoundId, soundId, StringComparison.Ordinal));
+
+        var dialog = new Views.HotkeyPromptWindow(_services, displayName, existing)
+        {
+            Owner = System.Windows.Application.Current?.MainWindow
+        };
+
+        if (dialog.ShowDialog() != true) return false;
+
+        if (dialog.Cleared)
+        {
+            if (existing is not null) _services.Settings.Settings.Hotkeys.Remove(existing);
+            StatusText = $"Keybind removed from “{displayName}”.";
+        }
+        else
+        {
+            var binding = existing;
+            if (binding is null)
+            {
+                binding = new HotkeyBinding { Action = HotkeyAction.PlaySound, SoundId = soundId };
+                _services.Settings.Settings.Hotkeys.Add(binding);
+            }
+
+            binding.VirtualKey = dialog.VirtualKey;
+            binding.Modifiers = dialog.Modifiers;
+            binding.Enabled = true;
+
+            StatusText = $"{binding} plays “{displayName}”.";
+        }
+
+        _services.Settings.Save();
+        _services.Hotkeys.RegisterAll();
+        Reload();
+        return true;
     }
 
     [RelayCommand]
@@ -283,6 +367,13 @@ public sealed partial class HotkeysViewModel : ObservableObject
         }
 
         if (IsModifierKey(virtualKey)) return true;
+
+        // These are global, so a plain key is taken from every other application too.
+        if (!HotkeyRules.IsSafe(virtualKey, modifiers))
+        {
+            StatusText = HotkeyRules.Explain(virtualKey, modifiers);
+            return true;
+        }
 
         // Against everything, not just what the filter happens to be showing.
         var duplicate = _all.FirstOrDefault(r =>

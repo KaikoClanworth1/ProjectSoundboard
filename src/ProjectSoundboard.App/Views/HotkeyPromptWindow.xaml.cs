@@ -71,6 +71,13 @@ public partial class HotkeyPromptWindow : Window
         var candidate = new HotkeyBinding { VirtualKey = virtualKey, Modifiers = modifiers };
         KeyText.Text = candidate.ToString();
 
+        // Global means global: a plain key would stop reaching every other application.
+        if (!HotkeyRules.IsSafe(virtualKey, modifiers))
+        {
+            Problem(HotkeyRules.Explain(virtualKey, modifiers));
+            return;
+        }
+
         // Say what is wrong straight away rather than accepting it and silently not working.
         var clash = _services.Settings.Settings.Hotkeys.FirstOrDefault(b =>
             b.Id != _ignoreBindingId && b.VirtualKey == virtualKey && b.Modifiers == modifiers);

@@ -78,6 +78,12 @@ public sealed class HotkeyService : IDisposable
     /// <summary>Bindings that Windows refused, usually because another app owns them.</summary>
     public IReadOnlyList<HotkeyBinding> Conflicts { get; private set; } = Array.Empty<HotkeyBinding>();
 
+    /// <summary>
+    /// Bindings switched off because they would have taken a plain key from the whole
+    /// machine. Surfaced on the hotkeys page so the change is not silent.
+    /// </summary>
+    public IReadOnlyList<HotkeyBinding> Disabled { get; private set; } = Array.Empty<HotkeyBinding>();
+
     public bool IsAttached => _source is not null;
 
     /// <summary>Attach to the main window's message loop. Call once, after the handle exists.</summary>
@@ -98,6 +104,7 @@ public sealed class HotkeyService : IDisposable
         if (_source is null) return;
 
         var conflicts = new List<HotkeyBinding>();
+        var unsafeBindings = new List<HotkeyBinding>();
         var handle = _source.Handle;
 
         foreach (var binding in _settings.Settings.Hotkeys)
@@ -109,6 +116,20 @@ public sealed class HotkeyService : IDisposable
             if (binding.Action == HotkeyAction.PushToTalk)
             {
                 _pushToTalkKey = binding.VirtualKey;
+                continue;
+            }
+
+            // Registering a plain key takes it from the whole machine. One saved copy of
+            // this bound S on its own and no application could receive an s while the
+            // soundboard was running. Switch it off rather than doing that again — the
+            // hotkeys page explains what happened and how to fix it.
+            if (!HotkeyRules.IsSafe(binding))
+            {
+                binding.Enabled = false;
+                unsafeBindings.Add(binding);
+
+                Log.Warn($"Hotkey '{binding}' for {binding.Action} was switched off: a key with " +
+                         "no Ctrl, Alt or Win would be taken from every other application.");
                 continue;
             }
 
@@ -127,9 +148,14 @@ public sealed class HotkeyService : IDisposable
         }
 
         Conflicts = conflicts;
+        Disabled = unsafeBindings;
+
+        if (unsafeBindings.Count > 0) _settings.Save();
+
         UpdatePushToTalkHook();
 
-        Log.Info($"Registered {_registered.Count} global hotkey(s), {conflicts.Count} conflict(s).");
+        Log.Info($"Registered {_registered.Count} global hotkey(s), {conflicts.Count} conflict(s), " +
+                 $"{unsafeBindings.Count} switched off as unsafe.");
     }
 
     public void UnregisterAll()

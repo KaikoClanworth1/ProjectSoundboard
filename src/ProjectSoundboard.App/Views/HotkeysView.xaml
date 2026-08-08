@@ -40,11 +40,26 @@
             </Grid>
         </StackPanel>
 
-        <Border Grid.Row="1" Background="{DynamicResource WarningBrush}" CornerRadius="10" Padding="12,9"
-                Margin="0,16,0,0"
-                Visibility="{Binding ConflictCount, Converter={StaticResource CountToVisibility}}">
-            <TextBlock Text="{Binding StatusText}" Foreground="#1A1A1A" TextWrapping="Wrap" FontSize="12"/>
-        </Border>
+        <StackPanel Grid.Row="1">
+            <!-- A key taken from the whole machine is worse than a clash, so it is stated
+                 separately and in full rather than folded into the status line. -->
+            <!-- The name goes on the Border, not the text: naming the TextBlock replaces
+                 what it says, so a screen reader would announce the heading and never read
+                 out which keybinds were switched off or why. -->
+            <Border Background="{DynamicResource DangerBrush}" CornerRadius="10" Padding="12,9"
+                    Margin="0,16,0,0"
+                    AutomationProperties.Name="Keybinds switched off"
+                    Visibility="{Binding DisabledCount, Converter={StaticResource CountToVisibility}}">
+                <TextBlock Text="{Binding DisabledText}" Foreground="White" TextWrapping="Wrap"
+                           FontSize="12"/>
+            </Border>
+
+            <Border Background="{DynamicResource WarningBrush}" CornerRadius="10" Padding="12,9"
+                    Margin="0,16,0,0"
+                    Visibility="{Binding ConflictCount, Converter={StaticResource CountToVisibility}}">
+                <TextBlock Text="{Binding StatusText}" Foreground="#1A1A1A" TextWrapping="Wrap" FontSize="12"/>
+            </Border>
+        </StackPanel>
 
         <Border Grid.Row="2" Style="{StaticResource Card}" Margin="0,16,0,0" Padding="0">
             <DockPanel>
@@ -153,8 +168,14 @@
         </Border>
 
         <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,14,0,0">
-            <Button Content="Add a hotkey" Style="{StaticResource PrimaryButton}"
-                    Command="{Binding AddHotkeyCommand}"/>
+            <Button Content="Set a keybind for a sound…" Style="{StaticResource PrimaryButton}"
+                    Command="{Binding AddSoundHotkeyCommand}"
+                    ToolTip="Choose a sound, then press the keys that should play it"
+                    AutomationProperties.Name="Set a keybind for a sound"/>
+            <Button Content="Add a control hotkey" Margin="8,0,0,0"
+                    Command="{Binding AddHotkeyCommand}"
+                    ToolTip="Stop all, mute, next, and the rest"
+                    AutomationProperties.Name="Add a control hotkey"/>
             <Button Content="Cancel capture" Margin="8,0,0,0" Style="{StaticResource GhostButton}"
                     Command="{Binding CancelCaptureCommand}"/>
             <TextBlock Text="{Binding StatusText}" Style="{StaticResource SecondaryText}"
