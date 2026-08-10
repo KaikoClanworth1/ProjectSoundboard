@@ -83,6 +83,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         Load();
         RefreshFolders();
         RefreshBackups();
+        RefreshCrashReports();
     }
 
     [ObservableProperty] private SettingsSection _section = SettingsSection.General;
@@ -875,6 +876,81 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         try { Process.Start(new ProcessStartInfo(AppPaths.LogDir) { UseShellExecute = true }); }
         catch { /* ignore */ }
+    }
+
+    // ---- commands: crash reports -------------------------------------------
+
+    public ObservableCollection<CrashReport> CrashReports { get; } = new();
+
+    public bool HasCrashReports => CrashReports.Count > 0;
+
+    public string CrashSummaryText =>
+        CrashReports.Count == 0
+            ? "No crashes recorded. Anything that goes wrong is written here."
+            : $"{CrashReports.Count} report{(CrashReports.Count == 1 ? "" : "s")}. " +
+              "The newest is at the top — open it and send it over if you are reporting a problem.";
+
+    public void RefreshCrashReports()
+    {
+        CrashReports.Clear();
+        foreach (var report in CrashReporter.List()) CrashReports.Add(report);
+
+        OnPropertyChanged(nameof(HasCrashReports));
+        OnPropertyChanged(nameof(CrashSummaryText));
+    }
+
+    [RelayCommand]
+    private static void OpenCrashFolder()
+    {
+        try
+        {
+            Directory.CreateDirectory(AppPaths.CrashDir);
+            Process.Start(new ProcessStartInfo(AppPaths.CrashDir) { UseShellExecute = true });
+        }
+        catch { /* ignore */ }
+    }
+
+    [RelayCommand]
+    private static void OpenCrashReport(CrashReport? report)
+    {
+        if (report is null) return;
+
+        try { Process.Start(new ProcessStartInfo(report.Path) { UseShellExecute = true }); }
+        catch (Exception ex) { Log.Warn($"Could not open the crash report: {ex.Message}"); }
+    }
+
+    /// <summary>Straight to the clipboard, because that is how a report actually gets sent.</summary>
+    [RelayCommand]
+    private void CopyCrashReport(CrashReport? report)
+    {
+        report ??= CrashReports.FirstOrDefault();
+        if (report is null) return;
+
+        try
+        {
+            System.Windows.Clipboard.SetText(File.ReadAllText(report.Path));
+            StatusText = $"{report.FileName} copied to the clipboard.";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Could not copy the report: {ex.Message}";
+        }
+    }
+
+    [RelayCommand]
+    private void ClearCrashReports()
+    {
+        var confirm = System.Windows.MessageBox.Show(
+            $"Delete all {CrashReports.Count} crash report(s)?",
+            "Clear crash reports",
+            System.Windows.MessageBoxButton.OKCancel,
+            System.Windows.MessageBoxImage.Question);
+
+        if (confirm != System.Windows.MessageBoxResult.OK) return;
+
+        CrashReporter.DeleteAll();
+        RefreshCrashReports();
+        StatusText = "Crash reports cleared.";
     }
 
     [RelayCommand]

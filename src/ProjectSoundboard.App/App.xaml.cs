@@ -1,4 +1,4 @@
-using System.Threading;
+﻿using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
 using ProjectSoundboard.App.Services;
@@ -13,6 +13,7 @@ public partial class App : Application
 
     private Mutex? _instanceMutex;
     private AppServices? _services;
+    private string? _lastCrashReport;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -31,6 +32,7 @@ public partial class App : Application
 
         DispatcherUnhandledException += OnDispatcherUnhandledException;
         AppDomain.CurrentDomain.UnhandledException += OnDomainUnhandledException;
+        TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
 
         try
         {
@@ -49,6 +51,21 @@ public partial class App : Application
 
         Log.Info("Project Soundboard starting.");
 
+        // Everything a report needs that only the app layer can see.
+        CrashReporter.DescribeEnvironment = _services.DescribeForCrashReport;
+        CrashReporter.DescribePostMortem = WindowsErrorReport.Describe;
+
+        // Leaves a marker for the whole run. If the next start finds it, this run died
+        // without shutting down — which is the only way the failures that kill the process
+        // outright can be recorded at all.
+        var previousSession = CrashReporter.BeginSession(UpdateService.CurrentVersion.ToString(), Log.CurrentFile);
+
+        if (previousSession is not null)
+        {
+            Log.Warn($"The previous run (process {previousSession.ProcessId}, version " +
+                     $"{previousSession.Version}) ended without shutting down.");
+        }
+
         if (!_services.Settings.Settings.SetupCompleted)
         {
             var wizard = new SetupWizardWindow();
@@ -65,9 +82,25 @@ public partial class App : Application
 
         _services.StartAudio();
 
+        // Written only now, with the audio stack up: the setup section is the useful half of
+        // this report, and before StartAudio every device reads as "none".
+        if (previousSession is not null)
+            _lastCrashReport = CrashReporter.WriteUncleanShutdown(previousSession);
+
         var main = new MainWindow();
         MainWindow = main;
         ShutdownMode = ShutdownMode.OnMainWindowClose;
+
+        // Say it in the status strip rather than with a dialog. A crash is worth mentioning,
+        // but not worth a box in the way every time the app is opened afterwards.
+        if (_lastCrashReport is not null)
+        {
+            main.ViewModel.StatusMessage =
+                "Project Soundboard did not shut down properly last time. A report was saved — " +
+                "see Settings, under Crash reports.";
+
+            main.ViewModel.Settings.RefreshCrashReports();
+        }
 
         var general = _services.Settings.Settings.General;
 
@@ -88,9 +121,11 @@ public partial class App : Application
     private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
         Log.Error("Unhandled UI exception", e.Exception);
+        var report = CrashReporter.WriteException("the interface", e.Exception, UpdateService.CurrentVersion.ToString());
 
         var result = MessageBox.Show(
             $"Something went wrong:\n\n{e.Exception.Message}\n\n" +
+            (report is null ? "" : $"A report was saved to:\n{report}\n\n") +
             "Project Soundboard can usually keep running. Continue?",
             "Unexpected error", MessageBoxButton.YesNo, MessageBoxImage.Warning);
 
@@ -101,8 +136,28 @@ public partial class App : Application
 
     private static void OnDomainUnhandledException(object sender, UnhandledExceptionEventArgs e)
     {
-        if (e.ExceptionObject is Exception ex) Log.Error("Unhandled background exception", ex);
-        else Log.Error($"Unhandled background exception: {e.ExceptionObject}");
+        if (e.ExceptionObject is Exception ex)
+        {
+            Log.Error("Unhandled background exception", ex);
+            CrashReporter.WriteException("a background thread", ex, UpdateService.CurrentVersion.ToString());
+        }
+        else
+        {
+            Log.Error($"Unhandled background exception: {e.ExceptionObject}");
+        }
+    }
+
+    /// <summary>
+    /// A task whose exception nobody ever looked at. Harmless to the run, but it is usually
+    /// the first sign of something that will matter later, so it is worth writing down.
+    /// </summary>
+    private static void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
+    {
+        Log.Error("Unobserved background task exception", e.Exception);
+        CrashReporter.WriteException("a background task", e.Exception, UpdateService.CurrentVersion.ToString());
+
+        // Nothing is broken yet; do not let it escalate into taking the process down.
+        e.SetObserved();
     }
 
     protected override void OnExit(ExitEventArgs e)
@@ -110,9 +165,13 @@ public partial class App : Application
         try { _services?.Dispose(); }
         catch { /* nothing useful left to do */ }
 
+        // Last thing: from here on, a missing marker means this run ended properly.
+        try { CrashReporter.EndSession(); } catch { /* ignore */ }
+
         try { _instanceMutex?.ReleaseMutex(); } catch { /* not owned */ }
         _instanceMutex?.Dispose();
 
         base.OnExit(e);
     }
 }
+

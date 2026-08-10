@@ -17,6 +17,12 @@ public static class Log
 
     public static bool Verbose { get; set; }
 
+    /// <summary>
+    /// The file being written to, so a crash report can point at the log that belongs to the
+    /// run that died rather than guessing from the date.
+    /// </summary>
+    public static string? CurrentFile => _file;
+
     /// <summary>Ring buffer of the most recent lines, surfaced in Settings → Developer.</summary>
     public static IReadOnlyCollection<string> Recent
     {

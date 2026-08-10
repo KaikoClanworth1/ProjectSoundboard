@@ -53,6 +53,18 @@ public static class AppPaths
     public static string BackupDir => Path.Combine(DataRoot, "backups");
     public static string LogDir => Path.Combine(DataRoot, "logs");
 
+    /// <summary>
+    /// Crash reports. Kept apart from the rolling logs so they are not pruned with them and
+    /// so there is one folder to point somebody at.
+    /// </summary>
+    public static string CrashDir => Path.Combine(DataRoot, "crashes");
+
+    /// <summary>
+    /// Written while the app is running and removed on a clean exit. If it is still here at
+    /// startup, the previous run died without shutting down.
+    /// </summary>
+    public static string SessionMarker => Path.Combine(DataRoot, "session.running");
+
     /// <summary>Where staged updates are unpacked before being applied.</summary>
     public static string UpdateStagingDir => Path.Combine(DataRoot, "updates");
 
@@ -146,5 +158,6 @@ public static class AppPaths
         Directory.CreateDirectory(WaveformCacheDir);
         Directory.CreateDirectory(BackupDir);
         Directory.CreateDirectory(LogDir);
+        Directory.CreateDirectory(CrashDir);
     }
 }

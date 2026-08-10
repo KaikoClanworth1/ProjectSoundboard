@@ -861,6 +861,66 @@
                             </StackPanel>
                         </Border>
 
+                        <!-- Crash reports: always visible, not behind developer mode. The
+                             whole point is that somebody who hits a crash can find it. -->
+                        <Border Style="{StaticResource Card}" Margin="0,14,0,0">
+                            <StackPanel>
+                                <TextBlock Text="Crash reports" Style="{StaticResource SectionTitle}"/>
+                                <TextBlock Text="{Binding CrashSummaryText}" TextWrapping="Wrap"
+                                           Style="{StaticResource SecondaryText}" Margin="0,4,0,0"/>
+
+                                <ItemsControl ItemsSource="{Binding CrashReports}" Margin="0,12,0,0">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Margin="0,0,0,6" Padding="12,9" CornerRadius="9"
+                                                    Background="{DynamicResource SurfaceAltBrush}"
+                                                    BorderBrush="{DynamicResource BorderBrushSoft}"
+                                                    BorderThickness="1">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+
+                                                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold"
+                                                                   FontSize="12.5" TextTrimming="CharacterEllipsis"/>
+                                                        <TextBlock Margin="0,3,0,0"
+                                                                   Style="{StaticResource MutedText}">
+                                                            <Run Text="{Binding When, Mode=OneWay}"/><Run Text="  ·  "/><Run Text="{Binding FileName, Mode=OneWay}"/>
+                                                        </TextBlock>
+                                                    </StackPanel>
+
+                                                    <StackPanel Grid.Column="1" Orientation="Horizontal"
+                                                                VerticalAlignment="Center" Margin="12,0,0,0">
+                                                        <Button Content="Open" Padding="12,6"
+                                                                Command="{Binding DataContext.OpenCrashReportCommand,
+                                                                          RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                                CommandParameter="{Binding}"/>
+                                                        <Button Content="Copy" Padding="12,6" Margin="6,0,0,0"
+                                                                Command="{Binding DataContext.CopyCrashReportCommand,
+                                                                          RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                                CommandParameter="{Binding}"
+                                                                ToolTip="Copy the whole report, ready to paste"/>
+                                                    </StackPanel>
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                    <Button Content="Open crash folder"
+                                            Command="{Binding OpenCrashFolderCommand}"/>
+                                    <Button Content="Clear" Margin="8,0,0,0"
+                                            Style="{StaticResource DangerButton}"
+                                            Command="{Binding ClearCrashReportsCommand}"
+                                            Visibility="{Binding HasCrashReports,
+                                                         Converter={StaticResource BoolToVisibility}}"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
                         <Border Style="{StaticResource Card}" Margin="0,14,0,0"
                                 Visibility="{Binding DeveloperMode, Converter={StaticResource BoolToVisibility}}">
                             <StackPanel>
