@@ -13,6 +13,7 @@ public partial class App : Application
 
     private Mutex? _instanceMutex;
     private AppServices? _services;
+    private UiHangDetector? _hangDetector;
     private string? _lastCrashReport;
 
     protected override void OnStartup(StartupEventArgs e)
@@ -86,6 +87,11 @@ public partial class App : Application
         // this report, and before StartAudio every device reads as "none".
         if (previousSession is not null)
             _lastCrashReport = CrashReporter.WriteUncleanShutdown(previousSession);
+
+        // From here on the interface is watched from outside. A frozen app otherwise leaves
+        // no trace at all: nothing thrown, nothing caught, and a log that just stops.
+        _hangDetector = new UiHangDetector(Dispatcher);
+        _hangDetector.Start();
 
         var main = new MainWindow();
         MainWindow = main;
@@ -162,6 +168,8 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        try { _hangDetector?.Dispose(); } catch { /* ignore */ }
+
         try { _services?.Dispose(); }
         catch { /* nothing useful left to do */ }
 

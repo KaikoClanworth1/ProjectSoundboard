@@ -13,7 +13,14 @@ public enum CrashKind
     /// The previous run never shut down. Nothing was caught, because nothing could be — a
     /// stack overflow, an access violation or the process being killed all end this way.
     /// </summary>
-    UncleanShutdown
+    UncleanShutdown,
+
+    /// <summary>
+    /// The window stopped responding. Nothing has failed and nothing will be caught: the
+    /// thread that draws and handles input is stuck, so from outside the app is simply
+    /// frozen and the only way out is to end it.
+    /// </summary>
+    Hang
 }
 
 /// <summary>One crash report on disk.</summary>
@@ -115,6 +122,28 @@ public static class CrashReporter
         AppendException(body, exception);
 
         return Write(CrashKind.Exception, $"{exception.GetType().Name} in {source}", version, body.ToString());
+    }
+
+    /// <summary>
+    /// The interface has stopped responding. Written from a background thread while it is
+    /// still stuck, so the log below is the last thing the app managed to do before it went
+    /// quiet — which is the only clue as to what it is waiting on.
+    /// </summary>
+    public static string? WriteHang(TimeSpan stuckFor, string version)
+    {
+        var body = new StringBuilder();
+
+        body.AppendLine($"What happened : the window stopped responding for {stuckFor.TotalSeconds:F0} seconds.");
+        body.AppendLine();
+        body.AppendLine("Nothing has failed. The thread that draws the window and handles input is");
+        body.AppendLine("waiting on something and has not come back, so the app looks frozen and");
+        body.AppendLine("ending it is the only way out.");
+        body.AppendLine();
+        body.AppendLine("The most likely cause is an audio device that is not answering — the last");
+        body.AppendLine("lines of the log below usually name whichever one was being started or");
+        body.AppendLine("stopped at the time.");
+
+        return Write(CrashKind.Hang, "The window stopped responding", version, body.ToString());
     }
 
     /// <summary>
