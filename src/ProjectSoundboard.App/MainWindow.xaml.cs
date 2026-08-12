@@ -116,8 +116,12 @@ public partial class MainWindow : Window
     {
         base.OnStateChanged(e);
 
+        // Only vanish if there is a tray icon to come back from. Creating one can fail —
+        // the shell was not ready, the icon could not be built — and hiding anyway left the
+        // window gone, no icon to click, and no way to quit short of Task Manager.
         if (WindowState == WindowState.Minimized &&
-            _services.Settings.Settings.General.MinimizeToTray)
+            _services.Settings.Settings.General.MinimizeToTray &&
+            _tray is not null)
         {
             Hide();
         }
@@ -127,16 +131,29 @@ public partial class MainWindow : Window
     {
         if (!_reallyClosing && _services.Settings.Settings.General.CloseToTray)
         {
-            e.Cancel = true;
-            Hide();
-            _tray?.ShowBalloonTip(2000, "Project Soundboard",
-                "Still running in the tray. Right-click the icon to quit.", Forms.ToolTipIcon.Info);
-            return;
+            if (_tray is null)
+            {
+                // Same reasoning as above: with no icon, closing has to mean closing.
+                Log.Warn("Close to tray is on but there is no tray icon, so closing normally.");
+            }
+            else
+            {
+                e.Cancel = true;
+                Hide();
+                _tray.ShowBalloonTip(2000, "Project Soundboard",
+                    "Still running in the tray. Right-click the icon to quit.", Forms.ToolTipIcon.Info);
+                return;
+            }
         }
+
+        // From here the app is going down. Armed now rather than in OnExit so a hang in any
+        // of this is covered too.
+        ShutdownWatchdog.Start();
 
         _services.Hotkeys.HotkeyPressed -= OnHotkeyPressed;
         _services.Hotkeys.PushToTalkChanged -= OnPushToTalkChanged;
 
+        ShutdownWatchdog.Reached("closing the window");
         _viewModel.Dispose();
 
         if (_tray is not null)

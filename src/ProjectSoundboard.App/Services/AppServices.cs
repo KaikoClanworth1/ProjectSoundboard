@@ -93,6 +93,13 @@ public sealed class AppServices : IDisposable
             text.AppendLine($"Playing       : {Engine.Active.Count} sound(s)");
             text.AppendLine($"View          : {Settings.Settings.Appearance.ViewMode}, " +
                             $"theme {Settings.Settings.Appearance.Theme}");
+
+            // These decide whether closing the window closes the app, so they are the first
+            // thing worth knowing when somebody reports it lingering in the background.
+            var general = Settings.Settings.General;
+            text.AppendLine($"Window        : close to tray {general.CloseToTray}, " +
+                            $"minimise to tray {general.MinimizeToTray}, " +
+                            $"start minimised {general.StartMinimized}");
             text.AppendLine($"Hotkeys       : {Settings.Settings.Hotkeys.Count} bound, " +
                             $"{Hotkeys.Conflicts.Count} in conflict, {Hotkeys.Disabled.Count} switched off");
 
@@ -127,22 +134,41 @@ public sealed class AppServices : IDisposable
 
     public void Dispose()
     {
-        try { Hotkeys.Dispose(); } catch { /* ignore */ }
-        try { Microphone.Dispose(); } catch { /* ignore */ }
-        try { Engine.Dispose(); } catch { /* ignore */ }
-        try { Devices.Dispose(); } catch { /* ignore */ }
-
-        try
+        // Saving comes first, before anything that can block. Stopping a WASAPI device waits
+        // on its driver for as long as that driver takes, and the shutdown watchdog will end
+        // the process if that runs on — which must never be able to happen with the library
+        // half written. Nothing here needs the audio stack to still be up.
+        Step("saving", () =>
         {
             Library.SaveIfDirty();
             Library.Dispose();
             Settings.Save();
-        }
-        catch (Exception ex) { Log.Error("Shutdown save failed", ex); }
+        });
+
+        // Named and timed. When shutting down overruns, which device it was is the question.
+        Step("hotkeys", () => Hotkeys.Dispose());
+        Step("microphone", () => Microphone.Dispose());
+        Step("audio outputs", () => Engine.Dispose());
+        Step("audio devices", () => Devices.Dispose());
 
         Log.Info("Project Soundboard closed.");
         Log.Shutdown();
 
         _instance = null;
+    }
+
+    private static void Step(string name, Action action)
+    {
+        ShutdownWatchdog.Reached(name);
+
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+
+        try { action(); }
+        catch (Exception ex) { Log.Warn($"Shutting down '{name}' failed: {ex.Message}"); }
+
+        // Everything here should be effectively instant, so anything slow is worth knowing
+        // about even when it does eventually finish.
+        if (clock.ElapsedMilliseconds > 400)
+            Log.Warn($"Shutting down '{name}' took {clock.ElapsedMilliseconds} ms.");
     }
 }
