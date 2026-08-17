@@ -32,8 +32,13 @@ internal sealed class UiHangDetector : IDisposable
     private readonly CancellationTokenSource _cancel = new();
     private readonly Thread _thread;
 
-    /// <summary>When the interface last finished answering. Written by the UI thread.</summary>
-    private long _lastReplyTicks = Stopwatch.GetTimestamp();
+    /// <summary>
+    /// When the interface last finished answering, or 0 before it ever has. Counting from
+    /// startup instead was wrong: the first report from a real freeze timed it from a reply
+    /// that had never happened, so the duration was whatever the app had been running rather
+    /// than how long it had been stuck.
+    /// </summary>
+    private long _lastReplyTicks;
 
     private bool _reported;
     private bool _disposed;
@@ -57,15 +62,24 @@ internal sealed class UiHangDetector : IDisposable
     {
         while (!_cancel.IsCancellationRequested)
         {
-            // Background priority, so it queues behind everything the app actually wants to
-            // do. That is the point: it is answered once the interface is genuinely free.
+            // Normal priority, not Background. Background sits behind every other kind of
+            // work, so a genuinely busy start-up looked identical to a frozen one. At Normal
+            // it is answered as soon as the thread is pumping at all, and going unanswered
+            // means blocked rather than merely busy.
             _dispatcher.BeginInvoke(
-                DispatcherPriority.Background,
+                DispatcherPriority.Normal,
                 new Action(() => Volatile.Write(ref _lastReplyTicks, Stopwatch.GetTimestamp())));
 
             if (_cancel.Token.WaitHandle.WaitOne(Interval)) return;
 
-            var since = Stopwatch.GetElapsedTime(Volatile.Read(ref _lastReplyTicks));
+            var last = Volatile.Read(ref _lastReplyTicks);
+
+            // Nothing to measure against until the interface has answered once. Start-up is
+            // legitimately busy, and timing a freeze from before the app was ever up would
+            // report a duration that means nothing.
+            if (last == 0) continue;
+
+            var since = Stopwatch.GetElapsedTime(last);
 
             if (since >= Threshold)
             {

@@ -107,6 +107,25 @@ public sealed partial class MicrophoneViewModel : ObservableObject
 
     public void RefreshDevices()
     {
+        // The guard has to cover the whole method, clearing the list included. A combo box
+        // bound to this collection writes its selection back as null the moment the list is
+        // emptied, and that ran through ApplyDevice: the saved device id was overwritten
+        // with null and the microphone restarted on whatever Windows calls the default.
+        // Every device appearing or disappearing anywhere on the machine did it, which on a
+        // PC with Steam streaming endpoints coming and going is constantly.
+        _loading = true;
+        try
+        {
+            RefreshDevicesCore();
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void RefreshDevicesCore()
+    {
         var devices = _services.Devices.GetDevices(DeviceKind.Input);
 
         InputDevices.Clear();
@@ -114,14 +133,12 @@ public sealed partial class MicrophoneViewModel : ObservableObject
 
         var saved = _services.Settings.Settings.Microphone.InputDeviceId;
 
-        _loading = true;
         // Same reasoning as the setup wizard: a virtual cable's output is a capture device,
         // and often the system default, but passing it through loops the soundboard back in.
         InputDevice = devices.FirstOrDefault(d => d.Id == saved)
                       ?? devices.FirstOrDefault(d => d.IsDefault && !d.IsVirtualCable)
                       ?? devices.FirstOrDefault(d => !d.IsVirtualCable)
                       ?? devices.FirstOrDefault();
-        _loading = false;
     }
 
     private void ApplyDsp()
@@ -167,13 +184,28 @@ public sealed partial class MicrophoneViewModel : ObservableObject
         if (_loading) return;
 
         var mic = _services.Settings.Settings.Microphone;
-        mic.InputDeviceId = InputDevice?.Id;
+
+        // Never let an empty selection erase the chosen microphone. Nothing selected means
+        // the list is momentarily empty or the device is unplugged, neither of which is the
+        // user asking to go back to the default — and once erased, the choice is gone.
+        if (InputDevice is not null) mic.InputDeviceId = InputDevice.Id;
+
         mic.PassthroughEnabled = PassthroughEnabled;
         mic.MonitorEnabled = MonitorEnabled;
         _services.Settings.Save();
 
         if (PassthroughEnabled)
         {
+            // Restarting capture on the device it is already using is pure disruption, and
+            // repeated restarts are exactly what stalls when a device is going away.
+            if (_services.Microphone.IsRunning &&
+                _services.Microphone.DeviceId == mic.InputDeviceId &&
+                _services.Microphone.MonitorEnabled == MonitorEnabled)
+            {
+                StatusText = $"Live on '{_services.Microphone.DeviceName}'.";
+                return;
+            }
+
             _services.Microphone.Start();
             ErrorText = _services.Microphone.LastError;
             StatusText = _services.Microphone.IsRunning

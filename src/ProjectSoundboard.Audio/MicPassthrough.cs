@@ -65,6 +65,15 @@ public sealed class MicPassthrough : IDisposable
 
     public bool IsRunning { get; private set; }
     public string? DeviceName { get; private set; }
+
+    /// <summary>
+    /// The endpoint capture is actually running on, so a caller can tell whether restarting
+    /// would change anything. Restarting capture it is already doing is pure disruption.
+    /// </summary>
+    public string? DeviceId { get; private set; }
+
+    /// <summary>Whether the run that is live was started with monitoring on.</summary>
+    public bool MonitorEnabled { get; private set; }
     public string? LastError { get; private set; }
 
     /// <summary>True while the gate is open, i.e. the user is audibly talking.</summary>
@@ -174,6 +183,8 @@ public sealed class MicPassthrough : IDisposable
                     _engine.MonitorBus.AddVoice(_monitorProvider);
 
                 DeviceName = device.FriendlyName;
+                DeviceId = device.ID;
+                MonitorEnabled = mic.MonitorEnabled;
                 IsRunning = true;
                 LastError = null;
 
@@ -487,6 +498,7 @@ public sealed class MicPassthrough : IDisposable
 
         IsRunning = false;
         DeviceName = null;
+        DeviceId = null;
     }
 
     /// <summary>Turn passthrough on or off and persist the choice.</summary>

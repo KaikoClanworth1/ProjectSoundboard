@@ -295,30 +295,39 @@ public sealed partial class AudioSettingsViewModel : ObservableObject
 
     public void RefreshDevices()
     {
-        var devices = _services.Devices.GetDevices(DeviceKind.Output);
-
-        OutputDevices.Clear();
-        foreach (var device in devices) OutputDevices.Add(device);
-
-        HasVirtualCable = devices.Any(d => d.IsVirtualCable);
-
-        var audio = _services.Settings.Settings.Audio;
-
+        // The guard covers emptying the list as well, not just choosing what to put back.
+        // A combo box bound to this collection writes its selection back as null the instant
+        // the list is cleared, and that ran through the change handler: the saved device was
+        // replaced with null and the outputs reopened on whatever Windows calls the default.
+        // Any device appearing or disappearing on the machine set it off.
         _loading = true;
+        try
+        {
+            var devices = _services.Devices.GetDevices(DeviceKind.Output);
 
-        // Show what is actually in use, not what was configured: with no saved id and no
-        // cable installed the engine falls back to the default device, and the combo box
-        // should say so rather than sitting empty.
-        VirtualMicDevice = devices.FirstOrDefault(d => d.Id == audio.VirtualMicDeviceId)
-                           ?? devices.FirstOrDefault(d => d.IsVirtualCable)
-                           ?? devices.FirstOrDefault(d => d.Id == _services.Engine.VirtualMicBus.DeviceId)
-                           ?? devices.FirstOrDefault(d => d.IsDefault);
+            OutputDevices.Clear();
+            foreach (var device in devices) OutputDevices.Add(device);
 
-        MonitorDevice = devices.FirstOrDefault(d => d.Id == audio.MonitorDeviceId)
-                        ?? devices.FirstOrDefault(d => d.Id == _services.Engine.MonitorBus.DeviceId)
-                        ?? devices.FirstOrDefault(d => d.IsDefault);
+            HasVirtualCable = devices.Any(d => d.IsVirtualCable);
 
-        _loading = false;
+            var audio = _services.Settings.Settings.Audio;
+
+            // Show what is actually in use, not what was configured: with no saved id and no
+            // cable installed the engine falls back to the default device, and the combo box
+            // should say so rather than sitting empty.
+            VirtualMicDevice = devices.FirstOrDefault(d => d.Id == audio.VirtualMicDeviceId)
+                               ?? devices.FirstOrDefault(d => d.IsVirtualCable)
+                               ?? devices.FirstOrDefault(d => d.Id == _services.Engine.VirtualMicBus.DeviceId)
+                               ?? devices.FirstOrDefault(d => d.IsDefault);
+
+            MonitorDevice = devices.FirstOrDefault(d => d.Id == audio.MonitorDeviceId)
+                            ?? devices.FirstOrDefault(d => d.Id == _services.Engine.MonitorBus.DeviceId)
+                            ?? devices.FirstOrDefault(d => d.IsDefault);
+        }
+        finally
+        {
+            _loading = false;
+        }
 
         RefreshCableIdentity();
     }
