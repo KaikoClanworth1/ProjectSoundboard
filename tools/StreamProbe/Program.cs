@@ -45,6 +45,15 @@ internal static class Program
             return 0;
         }
 
+        if (args[0] == "--rapid")
+        {
+            Console.WriteLine("mode: RAPID (how long starting a sound blocks the caller)");
+            Console.WriteLine();
+
+            RapidProbe(args.Skip(1).ToArray());
+            return 0;
+        }
+
         if (args[0] == "--loopclock")
         {
             Console.WriteLine("mode: LOOP CLOCK (reported position must return to 0 each pass)");
@@ -148,6 +157,57 @@ internal static class Program
             $"starvations={voice.Starvations}{(endedEarly ? " ENDED-EARLY" : "")}");
 
         return ok;
+    }
+
+    /// <summary>
+    /// Starts one sound after another the way pressing Next repeatedly does, and times how
+    /// long each start holds up the caller.
+    ///
+    /// That caller is the interface thread in the real app, so any time spent here is time
+    /// the window is frozen. Two voices are made per sound, one per output, exactly as the
+    /// engine does when the two outputs are different devices.
+    /// </summary>
+    private static void RapidProbe(string[] paths)
+    {
+        var format = WaveFormat.CreateIeeeFloatWaveFormat(SampleRate, Channels);
+        var live = new List<StreamingVoice>();
+        var worst = TimeSpan.Zero;
+        var total = TimeSpan.Zero;
+
+        try
+        {
+            for (var round = 0; round < paths.Length; round++)
+            {
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+
+                // Both outputs, like the engine.
+                live.Add(new StreamingVoice(paths[round], new VoiceSettings { Volume = 1f }, format));
+                live.Add(new StreamingVoice(paths[round], new VoiceSettings { Volume = 1f }, format));
+
+                clock.Stop();
+                total += clock.Elapsed;
+                if (clock.Elapsed > worst) worst = clock.Elapsed;
+
+                Console.WriteLine($"  start {round + 1,2}: blocked the caller for " +
+                                  $"{clock.Elapsed.TotalMilliseconds,7:F0} ms   " +
+                                  $"({Path.GetFileName(paths[round])})");
+
+                // Roughly the pace of somebody clicking Next.
+                Thread.Sleep(400);
+            }
+        }
+        finally
+        {
+            foreach (var voice in live) voice.Dispose();
+        }
+
+        Console.WriteLine();
+        Console.WriteLine($"  worst: {worst.TotalMilliseconds:F0} ms, total frozen: {total.TotalMilliseconds:F0} ms");
+
+        // A quarter second of frozen window per press is already bad; a second is a hang.
+        Console.WriteLine(worst < TimeSpan.FromMilliseconds(250)
+            ? "PASS — starting a sound does not hold up the caller."
+            : "FAIL — starting a sound freezes the caller for too long.");
     }
 
     /// <summary>

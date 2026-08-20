@@ -1,4 +1,4 @@
-using NAudio.Wave;
+﻿using NAudio.Wave;
 using ProjectSoundboard.Core.Storage;
 
 namespace ProjectSoundboard.Audio.Playback;
@@ -152,6 +152,11 @@ public sealed class StreamingVoice : VoiceBase, IDisposable
                 ? (total > 0 ? total : long.MaxValue)
                 : (total > 0 ? Math.Min(_endFrame, total) : _endFrame);
 
+            // Primed before the caller is released, deliberately. Releasing it as soon as the
+            // file was open was tried, to shorten the moment the interface is held up, and it
+            // is not worth it: measured across ten sounds it saved only a few milliseconds,
+            // because what costs time here is opening the file rather than decoding from it.
+            // All it buys is a buffer that starts empty.
             Decode((int)(PrimeSeconds * SampleRate) * ChannelCount);
         }
         catch (Exception ex)
@@ -365,3 +370,7 @@ public sealed class StreamingVoice : VoiceBase, IDisposable
         _source?.Dispose();
     }
 }
+
+
+
+

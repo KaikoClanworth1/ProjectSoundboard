@@ -86,34 +86,36 @@ internal sealed class UiHangDetector : IDisposable
 
             var since = Stopwatch.GetElapsedTime(last);
 
-            if (since >= NoticeThreshold && !_noticed)
-            {
-                // Written straight away so the log marks when it started, even if the app is
-                // ended before a full report is due.
-                _noticed = true;
-                Log.Warn($"The interface has not responded for {since.TotalSeconds:F0} seconds.");
-            }
-
-            if (since >= Threshold)
-            {
-                // Once per episode. A freeze that lasts minutes should not produce a report
-                // every two seconds.
-                if (!_reported)
-                {
-                    _reported = true;
-
-                    Log.Error($"The interface has not responded for {since.TotalSeconds:F0} seconds. " +
-                              "Writing a report now, while it is still stuck.");
-
-                    CrashReporter.WriteHang(since, UpdateService.CurrentVersion.ToString());
-                }
-            }
-            else if (_reported || _noticed)
+            // Answering again: this episode is over.
+            if (since < NoticeThreshold)
             {
                 if (_reported) Log.Warn("The interface started responding again.");
 
                 _reported = false;
                 _noticed = false;
+                continue;
+            }
+
+            // Noted straight away so the log marks when it began, even if the app is ended
+            // before a full report is due. Once only — the reset above is deliberately tied
+            // to the notice threshold, because resetting it below the *report* threshold
+            // meant this repeated every couple of seconds all the way up.
+            if (!_noticed)
+            {
+                _noticed = true;
+                Log.Warn($"The interface has not responded for {since.TotalSeconds:F0} seconds.");
+            }
+
+            // Once per episode. A freeze lasting minutes should not produce a report every
+            // two seconds.
+            if (since >= Threshold && !_reported)
+            {
+                _reported = true;
+
+                Log.Error($"The interface has not responded for {since.TotalSeconds:F0} seconds. " +
+                          "Writing a report now, while it is still stuck.");
+
+                CrashReporter.WriteHang(since, UpdateService.CurrentVersion.ToString());
             }
         }
     }

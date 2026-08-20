@@ -148,8 +148,12 @@ public sealed class OutputBus : IDisposable
     private MasterChain? _chain;
     private MMDevice? _device;
 
-    /// <summary>Everything currently mixed in, so it can be released if the bus goes away.</summary>
-    private readonly HashSet<ISampleProvider> _voices = new();
+    /// <summary>
+    /// Everything currently mixed in, so it can be released if the bus goes away. Concurrent
+    /// because the render thread removes from it, and making that thread wait on a lock is
+    /// what deadlocked the application.
+    /// </summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<ISampleProvider, byte> _voices = new();
 
     public OutputBus(string name) => Name = name;
 
@@ -197,11 +201,12 @@ public sealed class OutputBus : IDisposable
         }
     }
 
-    /// <summary>Number of voices currently mixed into this bus.</summary>
-    public int VoiceCount
-    {
-        get { lock (_gate) return _mixer?.MixerInputs.Count() ?? 0; }
-    }
+    /// <summary>
+    /// Number of voices currently mixed into this bus. Counted from our own list rather than
+    /// by asking the mixer, which would mean touching the mixer's lock from whichever thread
+    /// happens to want a number.
+    /// </summary>
+    public int VoiceCount => _voices.Count;
 
     /// <summary>
     /// (Re)open the bus on <paramref name="device"/>. Any voices playing on the previous
@@ -263,40 +268,63 @@ public sealed class OutputBus : IDisposable
         IsRunning = false;
     }
 
+    // The mixer has a lock of its own, and it holds it while reading — which is when it
+    // tells us an input has ended. So there are two locks and two threads:
+    //
+    //   this thread   holds _gate, then asks the mixer to add an input
+    //   render thread holds the mixer, then tells us the input ended and asks for _gate
+    //
+    // Each waits for what the other is holding, and the app stops dead. Pressing Next with
+    // shuffle on did it every time, because that stops one sound at the same moment as it
+    // starts another, which is exactly the pair of operations involved.
+    //
+    // The rule from here: never call the mixer while holding _gate, and never take _gate on
+    // the render thread. Our own list of voices is concurrent so the callback needs no lock
+    // at all.
+
+    /// <summary>Snapshot of the mixer, so it can be used after the lock is released.</summary>
+    private MixingSampleProvider? CurrentMixer
+    {
+        get { lock (_gate) return _mixer; }
+    }
+
     public void AddVoice(ISampleProvider voice)
     {
-        lock (_gate)
-        {
-            if (_mixer is null) return;
-            _mixer.AddMixerInput(voice);
-            _voices.Add(voice);
-        }
+        var mixer = CurrentMixer;
+        if (mixer is null) return;
+
+        _voices.TryAdd(voice, 0);
+        mixer.AddMixerInput(voice);
+
+        // The bus can be stopped while we are outside the lock. If it has been, this voice
+        // is attached to a mixer nobody will ever read, so let go of it — otherwise the
+        // handle that owns it waits for ever for a sound that cannot play.
+        if (ReferenceEquals(CurrentMixer, mixer)) return;
+
+        _voices.TryRemove(voice, out _);
+        if (voice is VoiceBase playable) playable.Abandon();
     }
 
     public void RemoveVoice(ISampleProvider voice)
     {
-        lock (_gate)
-        {
-            _voices.Remove(voice);
-            try { _mixer?.RemoveMixerInput(voice); }
-            catch { /* already removed by the mixer when it ended */ }
-        }
+        _voices.TryRemove(voice, out _);
+
+        try { CurrentMixer?.RemoveMixerInput(voice); }
+        catch { /* already removed by the mixer when it ended */ }
     }
 
     public void RemoveAllVoices()
     {
-        lock (_gate)
-        {
-            _voices.Clear();
-            _mixer?.RemoveAllMixerInputs();
-        }
+        _voices.Clear();
+        CurrentMixer?.RemoveAllMixerInputs();
     }
 
-    /// <summary>The mixer drops inputs that finish on their own; keep our list in step.</summary>
-    private void OnMixerInputEnded(object? sender, SampleProviderEventArgs e)
-    {
-        lock (_gate) _voices.Remove(e.SampleProvider);
-    }
+    /// <summary>
+    /// The mixer drops inputs that finish on their own; keep our list in step. Runs on the
+    /// render thread with the mixer's lock held, so it must not wait for anything.
+    /// </summary>
+    private void OnMixerInputEnded(object? sender, SampleProviderEventArgs e) =>
+        _voices.TryRemove(e.SampleProvider, out _);
 
     /// <summary>
     /// True when the bus is already running exactly this configuration, so there is no
@@ -335,7 +363,7 @@ public sealed class OutputBus : IDisposable
 
         // Nothing will ever read these again, so tell them so. Otherwise the handles that
         // own them wait forever for a completion that cannot arrive.
-        foreach (var voice in _voices)
+        foreach (var voice in _voices.Keys)
         {
             if (voice is VoiceBase playable) playable.Abandon();
         }
