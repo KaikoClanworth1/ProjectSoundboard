@@ -22,11 +22,15 @@ internal sealed class UiHangDetector : IDisposable
     private static readonly TimeSpan Interval = TimeSpan.FromSeconds(2);
 
     /// <summary>
-    /// How long without an answer before it counts. Generous on purpose — opening a folder
-    /// of thousands of files, or a driver taking its time, can hold the thread for a while
-    /// without anything actually being wrong.
+    /// How long without an answer before a report is written. Twenty seconds was too patient
+    /// to be useful: a frozen app gets ended long before that, and the report that was meant
+    /// to explain it never got written. Twelve is still well beyond any normal pause, now
+    /// that the question is asked at a priority a merely busy thread still answers.
     /// </summary>
-    private static readonly TimeSpan Threshold = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan Threshold = TimeSpan.FromSeconds(12);
+
+    /// <summary>Logged well before the report, so the log shows when it actually began.</summary>
+    private static readonly TimeSpan NoticeThreshold = TimeSpan.FromSeconds(5);
 
     private readonly Dispatcher _dispatcher;
     private readonly CancellationTokenSource _cancel = new();
@@ -41,6 +45,7 @@ internal sealed class UiHangDetector : IDisposable
     private long _lastReplyTicks;
 
     private bool _reported;
+    private bool _noticed;
     private bool _disposed;
 
     public UiHangDetector(Dispatcher dispatcher)
@@ -81,6 +86,14 @@ internal sealed class UiHangDetector : IDisposable
 
             var since = Stopwatch.GetElapsedTime(last);
 
+            if (since >= NoticeThreshold && !_noticed)
+            {
+                // Written straight away so the log marks when it started, even if the app is
+                // ended before a full report is due.
+                _noticed = true;
+                Log.Warn($"The interface has not responded for {since.TotalSeconds:F0} seconds.");
+            }
+
             if (since >= Threshold)
             {
                 // Once per episode. A freeze that lasts minutes should not produce a report
@@ -95,10 +108,12 @@ internal sealed class UiHangDetector : IDisposable
                     CrashReporter.WriteHang(since, UpdateService.CurrentVersion.ToString());
                 }
             }
-            else if (_reported)
+            else if (_reported || _noticed)
             {
+                if (_reported) Log.Warn("The interface started responding again.");
+
                 _reported = false;
-                Log.Warn("The interface started responding again.");
+                _noticed = false;
             }
         }
     }

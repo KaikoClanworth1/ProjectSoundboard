@@ -35,8 +35,81 @@ internal sealed class MasterChain : ISampleProvider
     public float Volume { get; set; } = 1f;
     public bool Muted { get; set; }
 
+    /// <summary>Name of the bus, only so a late-callback warning can say which one.</summary>
+    public string Name { get; init; } = "output";
+
+    // ---- deadline watching -------------------------------------------------
+    //
+    // The sound card asks for the next block of audio on a schedule. If we are handed back
+    // control late — because the machine is busy and this thread did not get the CPU in time
+    // — the card has already run out and what comes out is a break in the sound.
+    //
+    // Nothing measured that, so "it stutters when my computer is busy" could not be told
+    // apart from the decoder failing to keep up, which is a completely different problem
+    // with a completely different fix. Now the gap between calls is compared against how
+    // much audio was handed over, and falling behind is counted.
+
+    private long _lastCallTicks;
+    private int _lastFrames;
+    private int _lateCallbacks;
+    private long _summaryTicks;
+
+    /// <summary>Below this the block was effectively silence, so nobody could have heard a gap.</summary>
+    private const float Audible = 0.0005f;
+
+    /// <summary>Called after processing, so the meter can say whether this block was audible.</summary>
+    private void WatchDeadline(int framesDelivered)
+    {
+        var now = System.Diagnostics.Stopwatch.GetTimestamp();
+
+        if (_lastCallTicks != 0 && _lastFrames > 0)
+        {
+            var gap = System.Diagnostics.Stopwatch.GetElapsedTime(_lastCallTicks, now);
+            var owed = TimeSpan.FromSeconds(_lastFrames / (double)WaveFormat.SampleRate);
+
+            // Three times the audio handed over, plus slack. Being handed back late by a
+            // few milliseconds is ordinary and inaudible; measuring it at twice-plus-8ms
+            // counted normal jitter on a completely idle machine.
+            //
+            // And only while something is actually audible. A late callback during silence
+            // cannot be heard by anyone, and counting it would turn this into noise in the
+            // log rather than evidence of the thing being complained about.
+            if (Meter.Peak > Audible &&
+                gap > owed + owed + owed + TimeSpan.FromMilliseconds(15))
+            {
+                _lateCallbacks++;
+            }
+        }
+
+        _lastCallTicks = now;
+        _lastFrames = framesDelivered;
+
+        if (_summaryTicks == 0) _summaryTicks = now;
+
+        // Summarised rather than reported one by one: this runs hundreds of times a second
+        // and a log line per glitch would be its own performance problem.
+        if (System.Diagnostics.Stopwatch.GetElapsedTime(_summaryTicks, now) < TimeSpan.FromSeconds(30)) return;
+
+        var late = _lateCallbacks;
+        _lateCallbacks = 0;
+        _summaryTicks = now;
+
+        // A handful over half a minute is not worth mentioning; a run of them is.
+        if (late >= 5)
+        {
+            Log.Warn($"{Name}: the sound card was left waiting {late} time(s) in the last 30 " +
+                     "seconds while audio was playing. That is what a break in the sound is — " +
+                     "something else on the machine is taking the processor at the wrong moment.");
+        }
+    }
+
     public int Read(float[] buffer, int offset, int count)
     {
+        // This runs on the render thread, which belongs to NAudio — so this is the only
+        // place we can reach it to tell Windows it is audio work. After the first call it
+        // is a thread-static check and nothing else.
+        MmcssThread.EnsureRegistered("Pro Audio", high: true);
+
         var read = _source.Read(buffer, offset, count);
         if (read <= 0) return read;
 
@@ -54,6 +127,9 @@ internal sealed class MasterChain : ISampleProvider
         // Limiter last so nothing downstream can push the signal back over full scale.
         Limiter.Process(buffer, offset, read, channels);
         Meter.Process(buffer, offset, read);
+
+        // Last, so it can ask the meter whether this block was audible at all.
+        WatchDeadline(read / channels);
 
         return read;
     }
@@ -151,7 +227,7 @@ public sealed class OutputBus : IDisposable
 
                 _mixer = new MixingSampleProvider(Format) { ReadFully = true };
                 _mixer.MixerInputEnded += OnMixerInputEnded;
-                _chain = new MasterChain(_mixer) { Volume = _volume, Muted = _muted };
+                _chain = new MasterChain(_mixer) { Volume = _volume, Muted = _muted, Name = Name };
 
                 // Shared mode on purpose: exclusive mode would lock other applications out
                 // of the virtual cable, which is exactly what we need it to share.

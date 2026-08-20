@@ -165,7 +165,9 @@ public static class CrashReporter
         body.AppendLine($"Started       : {previous.StartedUtc.ToLocalTime():dd MMM yyyy, HH:mm:ss}");
         body.AppendLine($"Ran for       : {Describe(DateTime.UtcNow - previous.StartedUtc)}");
 
-        var postMortem = Safely(() => DescribePostMortem?.Invoke(previous));
+        // Longer: reading the Windows event log is slow but is not behind anything the app
+        // could be stuck on, so it is worth waiting for.
+        var postMortem = Safely(() => DescribePostMortem?.Invoke(previous), timeoutMs: 8000);
         if (!string.IsNullOrWhiteSpace(postMortem))
         {
             body.AppendLine();
@@ -358,9 +360,50 @@ public static class CrashReporter
         : span.TotalHours < 1 ? $"{span.TotalMinutes:F0} minutes"
         : $"{span.TotalHours:F1} hours";
 
-    private static string? Safely(Func<string?>? f)
+    /// <summary>
+    /// Collect a piece of context without ever being stopped by it.
+    ///
+    /// This is the difference between getting a report and getting nothing. Describing the
+    /// setup means reading the library and the list of playing sounds, and both are behind
+    /// locks. When the report is for a frozen interface, the frozen thread may be holding
+    /// exactly those locks — so asking for the context on this thread waited forever, and the
+    /// report that was supposed to explain the freeze was never written at all. Which is what
+    /// happened: an unresponsive app, and no report to show for it.
+    ///
+    /// So it is collected on a thread we are willing to abandon.
+    /// </summary>
+    private static string? Safely(Func<string?>? f, int timeoutMs = 2000)
     {
-        try { return f?.Invoke(); }
-        catch (Exception ex) { return $"(could not be collected: {ex.Message})"; }
+        if (f is null) return null;
+
+        string? result = null;
+        Exception? error = null;
+
+        var worker = new Thread(() =>
+        {
+            try { result = f(); }
+            catch (Exception ex) { error = ex; }
+        })
+        {
+            IsBackground = true,
+            Name = "crash-context"
+        };
+
+        try
+        {
+            worker.Start();
+
+            if (!worker.Join(timeoutMs))
+            {
+                return "(could not be read: this blocked, which means whatever the app is " +
+                       "stuck on is holding it — the log below is what there is to go on)";
+            }
+        }
+        catch (Exception ex)
+        {
+            return $"(could not be collected: {ex.Message})";
+        }
+
+        return error is not null ? $"(could not be collected: {error.Message})" : result;
     }
 }

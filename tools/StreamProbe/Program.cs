@@ -14,7 +14,8 @@ internal static class Program
 {
     private const int SampleRate = 48000;
     private const int Channels = 2;
-    private const double Seconds = 4.0;
+    /// <summary>Playback window. Must exceed the buffer under test or nothing can run dry.</summary>
+    private static double Seconds = 4.0;
 
     [STAThread]
     private static int Main(string[] args)
@@ -23,6 +24,12 @@ internal static class Program
         {
             Console.Error.WriteLine("usage: StreamProbe <file> [file ...]");
             return 2;
+        }
+
+        if (args[0].StartsWith("--secs=", StringComparison.Ordinal))
+        {
+            Seconds = double.Parse(args[0]["--secs=".Length..]);
+            args = args.Skip(1).ToArray();
         }
 
         Console.WriteLine($"apartment: {Thread.CurrentThread.GetApartmentState()}");

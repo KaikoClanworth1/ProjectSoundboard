@@ -19,8 +19,16 @@ namespace ProjectSoundboard.Audio.Playback;
 /// </summary>
 public sealed class StreamingVoice : VoiceBase, IDisposable
 {
-    /// <summary>How much decoded audio to keep ahead of the render thread.</summary>
-    private const double BufferSeconds = 1.5;
+    /// <summary>
+    /// How much decoded audio to keep ahead of the render thread.
+    ///
+    /// This is the whole defence against the rest of the machine. Long sounds are read from
+    /// disk as they play, so anything that saturates the disk — an image editor writing a
+    /// large file, a build, a virus scan — stalls the reads. At a second and a half the
+    /// buffer ran dry during exactly those moments and the sound broke up. Six seconds costs
+    /// about 2 MB per streaming sound and rides out all but the worst of it.
+    /// </summary>
+    private const double BufferSeconds = 6.0;
 
     /// <summary>Decoded before playback starts, so the ring is never empty at the start.</summary>
     private const double PrimeSeconds = 0.25;
@@ -117,6 +125,11 @@ public sealed class StreamingVoice : VoiceBase, IDisposable
 
     private void DecodeLoop()
     {
+        // Registered as audio work too. This thread is disk-bound, so what matters is being
+        // given the CPU promptly once a read comes back rather than queueing behind whatever
+        // else the machine is busy with — which is the moment the buffer would run dry.
+        MmcssThread.EnsureRegistered("Audio");
+
         try
         {
             _source = AudioFileFactory.Open(_path, SampleRate, ChannelCount);
@@ -336,6 +349,16 @@ public sealed class StreamingVoice : VoiceBase, IDisposable
         // The decoder owns the reader, so it must be done before we close it.
         if (_decoder.IsAlive && !_decoder.Join(TimeSpan.FromSeconds(2)))
             Log.Debug("Decoder thread did not stop in time.");
+
+        // Say so when a sound broke up. This was counted from the start and never reported,
+        // which made "it stutters when my machine is busy" impossible to confirm from a log.
+        var starved = Starvations;
+        if (starved > 0)
+        {
+            Log.Warn($"'{Path.GetFileName(_path)}' ran out of buffered audio {starved} time(s). " +
+                     "The disk could not keep up — usually something else on the machine " +
+                     "reading or writing heavily at the same time.");
+        }
 
         _cancel.Dispose();
         _ready.Dispose();
