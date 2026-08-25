@@ -26,6 +26,13 @@ public sealed class ImageCacheService
     /// <summary>Memory budget in bytes; least recently used images are evicted past it.</summary>
     public long BudgetBytes { get; set; } = 128L * 1024 * 1024;
 
+    /// <summary>
+    /// Whether decoded artwork is kept. Off means every tile decodes its image each time it
+    /// is asked for: far slower to scroll, and the point of turning it off is to hold no
+    /// artwork in memory at all. The setting existed but nothing read it.
+    /// </summary>
+    public bool Enabled { get; set; } = true;
+
     /// <summary>Longest edge the cached bitmap is decoded to.</summary>
     public int DecodeSize { get; set; } = 256;
 
@@ -60,6 +67,9 @@ public sealed class ImageCacheService
 
         var decoded = Decode(path);
         if (decoded is null) return null;
+
+        // Hand it back without keeping it, so nothing accumulates.
+        if (!Enabled) return decoded;
 
         var bytes = (long)decoded.PixelWidth * decoded.PixelHeight * 4;
 

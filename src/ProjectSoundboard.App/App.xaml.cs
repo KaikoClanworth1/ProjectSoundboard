@@ -50,6 +50,19 @@ public partial class App : Application
 
         _services.Theme.Apply();
 
+        // Applied before anything is drawn, because it cannot be changed once rendering has
+        // started. Turning it off drops WPF to software rendering, which uses no graphics
+        // memory at all — worth having on a machine that would rather keep its video memory
+        // for the game the soundboard is being used alongside. The setting existed but was
+        // never read, so it did nothing.
+        if (!_services.Settings.Settings.Performance.HardwareAcceleration)
+        {
+            System.Windows.Media.RenderOptions.ProcessRenderMode =
+                System.Windows.Interop.RenderMode.SoftwareOnly;
+
+            Log.Info("Hardware acceleration is off; drawing in software.");
+        }
+
         Log.Info("Project Soundboard starting.");
 
         // Everything a report needs that only the app layer can see.

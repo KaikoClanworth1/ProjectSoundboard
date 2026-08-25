@@ -599,14 +599,43 @@
                                         HorizontalAlignment="Left"/>
 
                                 <Grid Margin="0,14,0,0">
-                                    <TextBlock Text="Cache budget" Style="{StaticResource FieldLabel}"/>
+                                    <TextBlock Text="Artwork memory" Style="{StaticResource FieldLabel}"/>
                                     <TextBlock HorizontalAlignment="Right" Style="{StaticResource MutedText}">
                                         <Run Text="{Binding ImageCacheMb}"/><Run Text=" MB"/>
                                     </TextBlock>
                                 </Grid>
                                 <Slider Minimum="32" Maximum="1024" Value="{Binding ImageCacheMb}"
                                         TickFrequency="32" IsSnapToTickEnabled="True" MaxWidth="420"
-                                        HorizontalAlignment="Left"/>
+                                        HorizontalAlignment="Left"
+                                        AutomationProperties.Name="Artwork memory in megabytes"/>
+
+                                <Grid Margin="0,14,0,0">
+                                    <TextBlock Text="Sound memory" Style="{StaticResource FieldLabel}"/>
+                                    <TextBlock HorizontalAlignment="Right" Style="{StaticResource MutedText}">
+                                        <Run Text="{Binding SoundCacheMb}"/><Run Text=" MB"/>
+                                    </TextBlock>
+                                </Grid>
+                                <Slider Minimum="16" Maximum="1024" Value="{Binding SoundCacheMb}"
+                                        TickFrequency="16" IsSnapToTickEnabled="True" MaxWidth="420"
+                                        HorizontalAlignment="Left"
+                                        AutomationProperties.Name="Sound memory in megabytes"/>
+                                <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap" MaxWidth="560"
+                                           HorizontalAlignment="Left" Margin="0,4,0,0"
+                                           Text="Sounds kept decoded in memory play the instant you press them. Anything not held here is read from disk as it plays, which is not noticeable for music."/>
+
+                                <Grid Margin="0,14,0,0">
+                                    <TextBlock Text="Keep sounds shorter than" Style="{StaticResource FieldLabel}"/>
+                                    <TextBlock HorizontalAlignment="Right" Style="{StaticResource MutedText}">
+                                        <Run Text="{Binding MaxCachedSoundSeconds}"/><Run Text=" s"/>
+                                    </TextBlock>
+                                </Grid>
+                                <Slider Minimum="5" Maximum="120" Value="{Binding MaxCachedSoundSeconds}"
+                                        TickFrequency="5" IsSnapToTickEnabled="True" MaxWidth="420"
+                                        HorizontalAlignment="Left"
+                                        AutomationProperties.Name="Longest sound kept in memory, in seconds"/>
+                                <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap" MaxWidth="560"
+                                           HorizontalAlignment="Left" Margin="0,4,0,0"
+                                           Text="Decoded audio costs roughly 0.4 MB per second, so a long track held in memory is expensive. Raise this only if you trigger long clips constantly."/>
 
                                 <StackPanel Style="{StaticResource SettingRow}" Margin="0,18,0,14">
                                     <ToggleButton Style="{StaticResource Switch}" IsChecked="{Binding LazyLoading}"/>

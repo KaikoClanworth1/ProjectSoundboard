@@ -155,6 +155,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private int _scanThreads;
     [ObservableProperty] private bool _backgroundIndexing;
     [ObservableProperty] private int _imageCacheMb;
+    [ObservableProperty] private int _soundCacheMb;
+    [ObservableProperty] private int _maxCachedSoundSeconds;
     [ObservableProperty] private string _cacheStatsText = string.Empty;
 
     // ---- Notifications ----------------------------------------------------
@@ -255,6 +257,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         ScanThreads = s.Performance.ScanThreads;
         BackgroundIndexing = s.Performance.BackgroundIndexing;
         ImageCacheMb = s.Performance.ImageCacheMb;
+        SoundCacheMb = s.Performance.SoundCacheMb;
+        MaxCachedSoundSeconds = s.Performance.MaxCachedSoundSeconds;
 
         ShowToasts = s.Notifications.ShowToasts;
         NotifyOnMissingFiles = s.Notifications.NotifyOnMissingFiles;
@@ -329,6 +333,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         s.Performance.ScanThreads = Math.Max(1, ScanThreads);
         s.Performance.BackgroundIndexing = BackgroundIndexing;
         s.Performance.ImageCacheMb = Math.Max(16, ImageCacheMb);
+        s.Performance.SoundCacheMb = Math.Max(16, SoundCacheMb);
+        s.Performance.MaxCachedSoundSeconds = Math.Clamp(MaxCachedSoundSeconds, 1, 600);
 
         s.Notifications.ShowToasts = ShowToasts;
         s.Notifications.NotifyOnMissingFiles = NotifyOnMissingFiles;
@@ -349,7 +355,14 @@ public sealed partial class SettingsViewModel : ObservableObject
         s.Advanced.MetadataAutosaveSeconds = Math.Max(3, MetadataAutosaveSeconds);
 
         Log.Verbose = VerboseLogging;
+
         _services.Images.BudgetBytes = s.Performance.ImageCacheMb * 1024L * 1024L;
+        _services.Images.Enabled = s.Performance.CacheImages;
+
+        // The audio cache took its size from the image setting, so it never responded to its
+        // own. Applied here as well as on device changes, so moving the slider does something.
+        _services.Engine.Cache.BudgetBytes = Math.Max(16, s.Performance.SoundCacheMb) * 1024L * 1024L;
+        _services.Engine.Cache.MaxCacheableSeconds = Math.Clamp(s.Performance.MaxCachedSoundSeconds, 1, 600);
 
         _services.Settings.Save();
     }
@@ -428,6 +441,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     partial void OnScanThreadsChanged(int value) => Save();
     partial void OnBackgroundIndexingChanged(bool value) => Save();
     partial void OnImageCacheMbChanged(int value) => Save();
+    partial void OnSoundCacheMbChanged(int value) => Save();
+    partial void OnMaxCachedSoundSecondsChanged(int value) => Save();
     partial void OnShowToastsChanged(bool value) => Save();
     partial void OnNotifyOnMissingFilesChanged(bool value) => Save();
     partial void OnNotifyOnImportChanged(bool value) => Save();

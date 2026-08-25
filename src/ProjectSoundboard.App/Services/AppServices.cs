@@ -63,7 +63,8 @@ public sealed class AppServices : IDisposable
         UpdateService.CleanUpStaging();
         Images = new ImageCacheService
         {
-            BudgetBytes = Math.Max(32, Settings.Settings.Performance.ImageCacheMb) * 1024L * 1024L
+            BudgetBytes = Math.Max(32, Settings.Settings.Performance.ImageCacheMb) * 1024L * 1024L,
+            Enabled = Settings.Settings.Performance.CacheImages
         };
     }
 

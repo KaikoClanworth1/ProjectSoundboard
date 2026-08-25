@@ -107,7 +107,12 @@ public sealed class AudioEngine : IDisposable
             : Math.Clamp(audio.BufferSizeMs, 10, 200);
 
         Cache.Configure(sampleRate, channels);
-        Cache.BudgetBytes = Math.Max(32, perf.ImageCacheMb) * 1024L * 1024L;
+
+        // The audio cache, from the audio cache setting. This read ImageCacheMb, so moving
+        // the artwork slider quietly resized the sound cache and the sound cache's own
+        // setting did nothing at all.
+        Cache.BudgetBytes = Math.Max(16, perf.SoundCacheMb) * 1024L * 1024L;
+        Cache.MaxCacheableSeconds = Math.Clamp(perf.MaxCachedSoundSeconds, 1, 600);
 
         // Only restart a bus whose configuration actually changed. Starting a bus stops it
         // first, which kills whatever it is playing — so unconditionally restarting both

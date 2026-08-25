@@ -45,6 +45,15 @@ internal static class Program
             return 0;
         }
 
+        if (args[0] == "--cache")
+        {
+            Console.WriteLine("mode: CACHE (memory spent decoding a sound into the cache)");
+            Console.WriteLine();
+
+            CacheProbe(args.Skip(1).ToArray());
+            return 0;
+        }
+
         if (args[0] == "--rapid")
         {
             Console.WriteLine("mode: RAPID (how long starting a sound blocks the caller)");
@@ -157,6 +166,49 @@ internal static class Program
             $"starvations={voice.Starvations}{(endedEarly ? " ENDED-EARLY" : "")}");
 
         return ok;
+    }
+
+    /// <summary>
+    /// Measures what it costs to put a sound in the cache.
+    ///
+    /// What matters is not the size of the result but how much is allocated getting there.
+    /// Building the audio in a growing list and copying it at the end means two full copies
+    /// exist at once, and the discarded one lands on the large object heap, which is never
+    /// compacted — so the process keeps the memory whether it is used again or not.
+    /// </summary>
+    private static void CacheProbe(string[] paths)
+    {
+        var cache = new SoundCache { MaxCacheableSeconds = 600, BudgetBytes = 2L * 1024 * 1024 * 1024 };
+        cache.Configure(SampleRate, Channels);
+
+        foreach (var path in paths)
+        {
+            // Settled first, so the reading is about this decode and nothing else.
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+
+            var before = GC.GetTotalAllocatedBytes(precise: true);
+            var sound = cache.GetOrLoad(path);
+            var allocated = GC.GetTotalAllocatedBytes(precise: true) - before;
+
+            if (sound is null)
+            {
+                Console.WriteLine($"  {Path.GetFileName(path),-46} not cached");
+                continue;
+            }
+
+            var held = sound.Bytes / 1024.0 / 1024.0;
+            var spent = allocated / 1024.0 / 1024.0;
+
+            Console.WriteLine(
+                $"  {Path.GetFileName(path),-46} {sound.DurationSeconds,6:F1}s  " +
+                $"holds {held,6:F1} MB  allocated {spent,6:F1} MB  " +
+                $"({spent / Math.Max(0.1, held):F2}x)");
+        }
+
+        Console.WriteLine();
+        Console.WriteLine("  A ratio near 1 means it allocated about what it kept.");
     }
 
     /// <summary>

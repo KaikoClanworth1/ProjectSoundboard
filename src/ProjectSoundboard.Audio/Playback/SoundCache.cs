@@ -9,14 +9,29 @@ public sealed class CachedSound
 {
     public required string Path { get; init; }
 
-    /// <summary>Interleaved 32-bit float samples at the engine mix format.</summary>
+    /// <summary>
+    /// Interleaved 32-bit float samples at the engine mix format. May be slightly longer
+    /// than the audio it holds — see <see cref="SampleCount"/>.
+    /// </summary>
     public required float[] Data { get; init; }
+
+    /// <summary>
+    /// How much of <see cref="Data"/> is real audio.
+    ///
+    /// Kept separately so decoding does not have to end with a trim to the exact size. It
+    /// used to build a List and then call ToArray, which meant holding two full copies at
+    /// once — 66 MB for a 90 second sound — and leaving one of them as garbage on the large
+    /// object heap, which is never compacted.
+    /// </summary>
+    public required long SampleCount { get; init; }
 
     public required int SampleRate { get; init; }
     public required int Channels { get; init; }
 
-    public long Frames => Data.LongLength / Channels;
+    public long Frames => SampleCount / Channels;
     public double DurationSeconds => (double)Frames / SampleRate;
+
+    /// <summary>Memory actually held, which is what the budget cares about.</summary>
     public long Bytes => Data.LongLength * sizeof(float);
 
     /// <summary>Loudest sample in the file, used for normalisation.</summary>
@@ -112,28 +127,54 @@ public sealed class SoundCache
                 return null;
             }
 
-            var estimatedSamples = (int)(source.Duration.TotalSeconds * SampleRate * Channels) + SampleRate;
-            var buffer = new List<float>(Math.Max(1024, estimatedSamples));
-            var chunk = new float[SampleRate * Channels / 2];
+            // Decoded straight into one array of the right size. The length is known from the
+            // duration, so there is no reason to build a growing list and copy it at the end
+            // — that held two full copies of the audio at the same moment and left the larger
+            // one as garbage on the large object heap.
+            var chunkSamples = SampleRate * Channels / 2;
+            var expected = (long)(source.Duration.TotalSeconds * SampleRate * Channels);
 
+            // A chunk of slack absorbs the usual disagreement between a header's duration and
+            // what actually decodes, without a second allocation.
+            var data = new float[Math.Max(1024, expected + chunkSamples)];
+
+            var count = 0L;
             var peak = 0f;
-            int read;
-            while ((read = source.Provider.Read(chunk, 0, chunk.Length)) > 0)
+
+            while (true)
             {
-                for (var i = 0; i < read; i++)
+                // Grown only when there is genuinely no room left. Checking for less than a
+                // full chunk instead meant doubling at the tail of every file, purely because
+                // the last read was going to be a short one — a 92 second sound came out
+                // holding 68 MB for 35 MB of audio.
+                if (data.LongLength == count)
                 {
-                    var abs = Math.Abs(chunk[i]);
+                    var bigger = new float[data.LongLength * 2];
+                    Array.Copy(data, bigger, count);
+                    data = bigger;
+                }
+
+                var room = (int)Math.Min(chunkSamples, data.LongLength - count);
+                var read = source.Provider.Read(data, (int)count, room);
+                if (read <= 0) break;
+
+                var end = count + read;
+                for (var i = count; i < end; i++)
+                {
+                    var abs = Math.Abs(data[i]);
                     if (abs > peak) peak = abs;
                 }
-                buffer.AddRange(chunk.AsSpan(0, read));
+
+                count = end;
             }
 
-            if (buffer.Count == 0) return null;
+            if (count == 0) return null;
 
             return new CachedSound
             {
                 Path = path,
-                Data = buffer.ToArray(),
+                Data = data,
+                SampleCount = count,
                 SampleRate = SampleRate,
                 Channels = Channels,
                 Peak = peak

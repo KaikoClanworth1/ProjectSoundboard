@@ -212,6 +212,24 @@ public sealed class PerformanceSettings
     public bool BackgroundIndexing { get; set; } = true;
     public bool HardwareAcceleration { get; set; } = true;
     public int ImageCacheMb { get; set; } = 128;
+
+    /// <summary>
+    /// How much memory decoded sounds may occupy. Separate from the image budget, which used
+    /// to drive both by mistake — moving the artwork slider silently changed how much audio
+    /// was held in memory.
+    /// </summary>
+    public int SoundCacheMb { get; set; } = 96;
+
+    /// <summary>
+    /// Sounds longer than this are streamed from disk rather than held decoded in memory.
+    ///
+    /// Kept low deliberately. Decoded audio costs about 384 KB per second, so the old limit
+    /// of ninety seconds let a single track occupy 33 MB — measured, and by a wide margin the
+    /// largest thing on the heap. Caching exists so that the short sounds people trigger
+    /// constantly fire instantly; a music track is started occasionally and does not notice
+    /// the file being opened.
+    /// </summary>
+    public int MaxCachedSoundSeconds { get; set; } = 20;
 }
 
 public sealed class NotificationSettings
