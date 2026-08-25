@@ -40,7 +40,20 @@ public sealed class AudioEngine : IDisposable
         MonitorBus = new OutputBus("Monitor");
 
         // Drives progress bars and prunes finished handles.
-        _tick = new System.Threading.Timer(_ => Tick(), null, 100, 100);
+        // Same reasoning as the library's debounce: this is a pool thread, and anything that
+        // escapes here ends the process instead of being caught. Ten times a second is a lot
+        // of chances for something to go wrong once.
+        _tick = new System.Threading.Timer(_ =>
+        {
+            try
+            {
+                Tick();
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Playback tick failed", ex);
+            }
+        }, null, 100, 100);
     }
 
     public OutputBus VirtualMicBus { get; }

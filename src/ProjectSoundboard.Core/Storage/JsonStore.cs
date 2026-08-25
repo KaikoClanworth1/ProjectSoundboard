@@ -46,25 +46,88 @@ public static class JsonStore
         return fallback();
     }
 
+    /// <summary>
+    /// One lock per file being written.
+    ///
+    /// Two saves of the same file can be asked for at the same moment — a folder watcher
+    /// noticing a new file while the app is adding it deliberately, which is exactly what a
+    /// download into a watched folder does. Both wrote to the same temp name, the second
+    /// found it held by the first, and the exception came out on a timer thread where
+    /// nothing was catching it and ended the process.
+    /// </summary>
+    private static readonly Dictionary<string, object> Gates = new(StringComparer.OrdinalIgnoreCase);
+
+    private static object GateFor(string path)
+    {
+        lock (Gates)
+        {
+            if (Gates.TryGetValue(path, out var gate)) return gate;
+            return Gates[path] = new object();
+        }
+    }
+
     public static void Save<T>(string path, T value)
     {
         var dir = Path.GetDirectoryName(path);
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
 
-        var tmp = path + ".tmp";
-        var bak = path + ".bak";
-
         var json = JsonSerializer.Serialize(value, Options);
-        File.WriteAllText(tmp, json);
 
-        if (File.Exists(path))
+        lock (GateFor(path))
         {
-            // Replace keeps a backup copy and is atomic on NTFS.
-            File.Replace(tmp, path, bak, ignoreMetadataErrors: true);
+            // A name of its own as well as the lock. The lock settles this application; the
+            // name settles everything else that might be holding a file in this folder —
+            // another copy of the app on a shared folder, a virus scanner, a backup tool.
+            var tmp = $"{path}.{Environment.ProcessId}-{Environment.CurrentManagedThreadId}.tmp";
+            var bak = path + ".bak";
+
+            try
+            {
+                Retry(() => File.WriteAllText(tmp, json));
+
+                Retry(() =>
+                {
+                    if (File.Exists(path))
+                    {
+                        // Replace keeps a backup copy and is atomic on NTFS.
+                        File.Replace(tmp, path, bak, ignoreMetadataErrors: true);
+                    }
+                    else
+                    {
+                        File.Move(tmp, path);
+                    }
+                });
+            }
+            finally
+            {
+                // Nothing else will ever look at it, and leaving it would accumulate one
+                // per failed save.
+                try { if (File.Exists(tmp)) File.Delete(tmp); }
+                catch { /* it will be overwritten next time */ }
+            }
         }
-        else
+    }
+
+    /// <summary>
+    /// Try a few times before giving up. A file can be held for a moment by something with
+    /// no interest in it — a scanner, an indexer, a sync client — and failing the save
+    /// outright because of that would lose the change for no good reason.
+    /// </summary>
+    private static void Retry(Action action)
+    {
+        const int attempts = 4;
+
+        for (var attempt = 1; ; attempt++)
         {
-            File.Move(tmp, path);
+            try
+            {
+                action();
+                return;
+            }
+            catch (Exception ex) when (attempt < attempts && ex is IOException or UnauthorizedAccessException)
+            {
+                Thread.Sleep(40 * attempt);
+            }
         }
     }
 

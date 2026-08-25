@@ -589,7 +589,21 @@ public sealed class LibraryService : IDisposable
     /// </summary>
     private void ScheduleDebounce()
     {
-        _debounceTimer ??= new System.Threading.Timer(_ => ApplyPending(), null, Timeout.Infinite, Timeout.Infinite);
+        // Guarded, because this runs on a pool thread where an escaping exception ends the
+        // process rather than being caught anywhere. Saving the library failed here — the
+        // folder watcher and a deliberate add both writing at once — and took the whole app
+        // down with it. Noticing a file on disk is not worth anybody's session.
+        _debounceTimer ??= new System.Threading.Timer(_ =>
+        {
+            try
+            {
+                ApplyPending();
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Applying watched folder changes failed", ex);
+            }
+        }, null, Timeout.Infinite, Timeout.Infinite);
         _debounceTimer.Change(750, Timeout.Infinite);
     }
 
