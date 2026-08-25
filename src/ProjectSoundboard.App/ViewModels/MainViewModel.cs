@@ -1120,6 +1120,91 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         await Views.ImportFlow.RunAsync(owner, _services, dialog.FileNames, this);
     }
 
+    // -----------------------------------------------------------------------
+    // Downloading from YouTube
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Where "this library" means, for whatever is being looked at.
+    ///
+    /// The folder of the sound in hand comes first: with subfolders as groups, that is the
+    /// one somebody browsing has in mind, and it is more specific than any watched root.
+    /// Failing that, wherever the sounds in this group live, and failing that the main
+    /// library.
+    /// </summary>
+    private string? SuggestedDownloadFolder()
+    {
+        var fromSelection = Folder(SelectedSound?.Entry.FilePath);
+        if (fromSelection is not null) return fromSelection;
+
+        if (SelectedNode is { Kind: LibraryNodeKind.Group, GroupId: { } groupId })
+        {
+            var tree = _services.Library.GetGroupTree(groupId);
+
+            var common = _services.Library.Sounds
+                .Where(s => s.GroupId is not null && tree.Contains(s.GroupId))
+                .Select(s => Folder(s.FilePath))
+                .Where(f => f is not null)
+                .GroupBy(f => f, StringComparer.OrdinalIgnoreCase)
+                .OrderByDescending(g => g.Count())
+                .FirstOrDefault()?.Key;
+
+            if (common is not null) return common;
+        }
+
+        var folders = _services.Settings.Settings.Library.Folders;
+
+        return folders.FirstOrDefault(f => f.IsMainLibrary && !string.IsNullOrWhiteSpace(f.Path))?.Path
+               ?? folders.FirstOrDefault(f => !string.IsNullOrWhiteSpace(f.Path))?.Path;
+
+        static string? Folder(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return null;
+
+            try { return Path.GetDirectoryName(path); }
+            catch { return null; }
+        }
+    }
+
+    /// <summary>
+    /// Fetch a YouTube link as an MP3 into the library being looked at, and put it straight
+    /// into the group as well, so it appears where it was asked for rather than needing to
+    /// be found and moved afterwards.
+    /// </summary>
+    [RelayCommand]
+    private void DownloadFromYouTube()
+    {
+        var folder = SuggestedDownloadFolder();
+        Log.Info($"Opening the YouTube downloader (into {folder ?? "no folder"}).");
+
+        var dialog = new Views.YouTubeDownloadWindow(_services, folder)
+        {
+            Owner = Application.Current?.MainWindow
+        };
+
+        if (dialog.ShowDialog() != true || dialog.DownloadedPath is not { } file) return;
+
+        var groupId = SelectedNode is { Kind: LibraryNodeKind.Group } node ? node.GroupId : null;
+        var added = _services.Library.AddFiles(new[] { file }, groupId);
+
+        BuildTree();
+        RefreshResults();
+
+        var name = Path.GetFileNameWithoutExtension(file);
+
+        if (added.Count > 0)
+        {
+            SelectedSound = FindViewModel(added[0].Id);
+            StatusMessage = $"Downloaded '{name}'.";
+        }
+        else
+        {
+            // On disk but not indexed: it landed outside every watched folder.
+            StatusMessage = $"Downloaded '{name}', but it is not in a library folder so it " +
+                            "has not been added. Add that folder in Settings to see it.";
+        }
+    }
+
     /// <summary>
     /// Show every keybind, with this sound's already found. For when you want the whole
     /// list rather than the one sound.

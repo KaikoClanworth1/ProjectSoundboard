@@ -1,0 +1,91 @@
+<Window x:Class="ProjectSoundboard.App.Views.YouTubeDownloadWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Download from YouTube"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        SizeToContent="Height" Width="560" FontFamily="Segoe UI"
+        Foreground="{DynamicResource TextPrimaryBrush}">
+
+    <Border Background="{DynamicResource SurfaceBrush}" CornerRadius="14" Padding="22"
+            BorderBrush="{DynamicResource BorderBrushStrong}" BorderThickness="1"
+            Margin="12" Effect="{DynamicResource PopupShadow}">
+        <StackPanel>
+            <TextBlock Text="Download from YouTube" FontSize="17" FontWeight="SemiBold"/>
+            <TextBlock x:Name="SubtitleText" Style="{StaticResource SecondaryText}"
+                       Margin="0,6,0,0" TextWrapping="Wrap"
+                       Text="Paste a link. The audio is saved as an MP3 straight into your library."/>
+
+            <!-- yt-dlp missing -->
+            <Border x:Name="ToolMissingPanel" Margin="0,14,0,0" Padding="12,10" CornerRadius="10"
+                    Background="{DynamicResource WarningBrush}" Visibility="Collapsed">
+                <StackPanel>
+                    <TextBlock Foreground="#1A1A1A" TextWrapping="Wrap" FontSize="12"
+                               Text="This needs yt-dlp, a small open-source program that does the talking to YouTube. It is not included because it goes out of date quickly. It can be fetched now, into this app's own folder."/>
+                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                        <Button x:Name="GetToolButton" Content="Get yt-dlp" Padding="14,6"
+                                Style="{StaticResource PrimaryButton}" Click="OnGetTool"/>
+                        <Button Content="Open its page" Padding="12,6" Margin="8,0,0,0" Click="OnOpenToolPage"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Link -->
+            <TextBlock Text="Link" Style="{StaticResource FieldLabel}" Margin="0,16,0,5"/>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="UrlBox" Padding="9,7" TextChanged="OnUrlChanged"
+                         AutomationProperties.Name="YouTube link"/>
+                <Button x:Name="LookUpButton" Grid.Column="1" Content="Look up" Margin="8,0,0,0"
+                        Padding="14,7" Click="OnLookUp" IsDefault="True"
+                        AutomationProperties.Name="Look up this link"/>
+            </Grid>
+
+            <!-- What it found -->
+            <Border x:Name="FoundPanel" Margin="0,14,0,0" Padding="12,10" CornerRadius="10"
+                    Background="{DynamicResource SurfaceAltBrush}"
+                    BorderBrush="{DynamicResource BorderBrushSoft}" BorderThickness="1"
+                    Visibility="Collapsed">
+                <StackPanel>
+                    <TextBlock x:Name="FoundTitle" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock x:Name="FoundDetail" Style="{StaticResource MutedText}" Margin="0,3,0,0"
+                               TextTrimming="CharacterEllipsis"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Name -->
+            <TextBlock Text="Save as" Style="{StaticResource FieldLabel}" Margin="0,14,0,5"/>
+            <TextBox x:Name="NameBox" Padding="9,7" TextChanged="OnNameChanged"
+                     AutomationProperties.Name="Name to save it as"/>
+            <TextBlock x:Name="NameHint" Style="{StaticResource MutedText}" Margin="2,4,0,0"
+                       TextWrapping="Wrap"/>
+
+            <!-- Where -->
+            <TextBlock Text="Into" Style="{StaticResource FieldLabel}" Margin="0,14,0,5"/>
+            <ComboBox x:Name="FolderBox" Padding="8,6"
+                      AutomationProperties.Name="Library folder to download into"/>
+
+            <!-- Progress -->
+            <StackPanel x:Name="ProgressPanel" Margin="0,16,0,0" Visibility="Collapsed">
+                <ProgressBar x:Name="Progress" Height="6" Minimum="0" Maximum="100"
+                             Background="{DynamicResource SurfaceAltBrush}"
+                             Foreground="{DynamicResource AccentBrush}"
+                             BorderThickness="0"/>
+                <TextBlock x:Name="ProgressText" Style="{StaticResource MutedText}" Margin="0,6,0,0"/>
+            </StackPanel>
+
+            <TextBlock x:Name="ProblemText" Foreground="{DynamicResource DangerBrush}"
+                       Margin="0,12,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
+                <Button x:Name="CancelButton" Content="Cancel" Width="94" IsCancel="True" Click="OnCancel"/>
+                <Button x:Name="DownloadButton" Content="Download" Width="120" Margin="8,0,0,0"
+                        IsEnabled="False" Style="{StaticResource PrimaryButton}" Click="OnDownload"
+                        AutomationProperties.Name="Download"/>
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</Window>

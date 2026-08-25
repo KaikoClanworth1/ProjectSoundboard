@@ -332,6 +332,11 @@
                                 Style="{StaticResource GhostButton}" FontSize="12"
                                 Command="{Binding ImportFilesCommand}"
                                 ToolTip="Same as dragging files onto the window"/>
+                        <Button Content="Download from YouTube…" HorizontalAlignment="Stretch"
+                                Margin="0,6,0,0" Style="{StaticResource GhostButton}" FontSize="12"
+                                Command="{Binding DownloadFromYouTubeCommand}"
+                                ToolTip="Save the audio from a link as an MP3, into whichever library you are looking at"
+                                AutomationProperties.Name="Download from YouTube"/>
                         <Button Content="Rescan library" HorizontalAlignment="Stretch" Margin="0,6,0,0"
                                 Style="{StaticResource GhostButton}" FontSize="12"
                                 Command="{Binding RescanCommand}" ToolTip="F5"/>
