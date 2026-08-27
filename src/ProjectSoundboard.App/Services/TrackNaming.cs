@@ -309,7 +309,19 @@ public static partial class TrackNaming
         if (ThemeWord().IsMatch(tail)) return text;
         if (tail.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length > 3) return text;
 
-        return string.Join(" - ", parts[..^1]);
+        // Only when the theme is already named. "Opening|The Rumbling - SiM" has its song,
+        // so what follows is the band; "The Seven Deadly Sins Opening - Passionate Spectrum"
+        // has not, so what follows is the song and dropping it throws away the name.
+        var head = string.Join(" - ", parts[..^1]);
+        var theme = ThemeWord().Matches(head).LastOrDefault();
+
+        if (theme is null) return text;
+        if (head[(theme.Index + theme.Length)..].Trim(' ', '-', '–', '—', ':', '|', '｜', '│').Length == 0)
+        {
+            return text;
+        }
+
+        return head;
     }
 
     /// <summary>

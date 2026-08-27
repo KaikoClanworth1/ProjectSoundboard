@@ -174,6 +174,27 @@ internal static class Program
         return 0;
     }
 
+    /// <summary>
+    /// The Anime Op folder, which was already half tidy. These matter because they are the
+    /// case where the song is what comes after the dash, not the band — the opposite of
+    /// "Opening|The Rumbling - SiM", and told apart only by whether the theme already has a
+    /// song beside it.
+    /// </summary>
+    private static readonly Case[] AnimeFolder =
+    [
+        new("Attack on Titan Opening 1", "Attack on Titan Opening"),
+        new("Cyberpunk Edgerunners “I Really Want to Stay At Your House”",
+            "Cyberpunk Edgerunners “I Really Want to Stay At Your House”"),
+        new("Hunter X Hunter Opening 1 Departure!", "Hunter X Hunter Opening Departure!"),
+        new("Kaiju No. 8 Opening", "Kaiju No. 8 Opening"),
+        new("My Hero Academia Season 3 Opening 1", "My Hero Academia Opening"),
+        new("Noragami Opening 2", "Noragami Opening"),
+        new("Overlord Opening Clattanoia", "Overlord Opening Clattanoia"),
+        new("The Seven Deadly Sins Opening 1 - Passionate Spectrum",
+            "The Seven Deadly Sins Opening - Passionate Spectrum"),
+        new("Tokyo Ghoul Opening Unravel", "Tokyo Ghoul Opening Unravel"),
+    ];
+
     private static int Main(string[] args)
     {
         Console.OutputEncoding = Encoding.UTF8;
@@ -183,10 +204,11 @@ internal static class Program
         var (musicOk, musicTotal, musicKnown) = Run("music", Music);
         var (animeOk, animeTotal, animeKnown) = Run("anime themes", Anime);
         var (keepOk, keepTotal, keepKnown) = Run("names that must survive untouched", LeaveAlone);
+        var (animeOk2, animeTotal2, animeKnown2) = Run("the anime op folder", AnimeFolder);
 
-        var ok = musicOk + animeOk + keepOk;
-        var total = musicTotal + animeTotal + keepTotal;
-        var known = musicKnown + animeKnown + keepKnown;
+        var ok = musicOk + animeOk + keepOk + animeOk2;
+        var total = musicTotal + animeTotal + keepTotal + animeTotal2;
+        var known = musicKnown + animeKnown + keepKnown + animeKnown2;
 
         Console.WriteLine();
         Console.WriteLine($"  {ok} of {total} exact; {known} known to be out of reach.");

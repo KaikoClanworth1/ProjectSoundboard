@@ -282,9 +282,14 @@ public sealed class LibraryService : IDisposable
             }, ct).ConfigureAwait(false);
 
             // --- commit -----------------------------------------------------
+            var newcomers = created.ToList();
+            var renamed = 0;
+
             lock (_gate)
             {
-                foreach (var entry in created)
+                renamed = TakeBackMoved(gone, newcomers);
+
+                foreach (var entry in newcomers)
                 {
                     var key = Normalize(entry.FilePath);
                     if (_byPath.ContainsKey(key)) continue;
@@ -335,7 +340,8 @@ public sealed class LibraryService : IDisposable
                 IsComplete = true
             });
 
-            Log.Info($"Scan complete: {found.Count} files on disk, {created.Count} added, {gone.Count} removed/missing.");
+            Log.Info($"Scan complete: {found.Count} files on disk, {newcomers.Count} added, " +
+                     $"{renamed} renamed, {gone.Count} removed/missing.");
             LibraryChanged?.Invoke(this, EventArgs.Empty);
         }
         catch (OperationCanceledException)
@@ -465,6 +471,134 @@ public sealed class LibraryService : IDisposable
         RemoveFromLibrary(doomed);
         Log.Info($"Removed {doomed.Count} sound(s) that lived under {folderPath}.");
         return doomed.Count;
+    }
+
+    /// <summary>
+    /// Files that did not disappear, they moved.
+    ///
+    /// Renaming a file makes it look like two events at once: one path gone, another arrived.
+    /// Taken at face value the old entry is kept as missing — everything in a library has a
+    /// group, so everything counts as customised — and the same sound is added again beside
+    /// it as a stranger, with none of its hotkeys, artwork or name.
+    ///
+    /// Renaming and moving both leave the size and the last-written time exactly as they
+    /// were, so a gone entry and a new file that agree on both are the same file. Only where
+    /// exactly one new file matches: two copies of a sound are not worth guessing between,
+    /// and being wrong would move somebody's hotkey onto the wrong sound.
+    /// </summary>
+    private int TakeBackMoved(List<SoundEntry> gone, List<SoundEntry> arrived)
+    {
+        if (gone.Count == 0) return 0;
+
+        // No new files does not mean nothing to do: a leftover from an earlier scan is
+        // cleared by the second pass, which needs no new file to match against.
+        if (arrived.Count == 0) return AbsorbAlreadyAdded(gone);
+
+        var bySignature = arrived
+            .Where(e => e is { FileSizeBytes: > 0, IsBroken: false })
+            .GroupBy(e => (e.FileSizeBytes, e.FileTicks))
+            .Where(g => g.Count() == 1)
+            .ToDictionary(g => g.Key, g => g.Single());
+
+        if (bySignature.Count == 0) return AbsorbAlreadyAdded(gone);
+
+        var claimed = new HashSet<string>(StringComparer.Ordinal);
+        var moved = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var entry in gone)
+        {
+            if (entry.FileSizeBytes <= 0) continue;
+            if (!bySignature.TryGetValue((entry.FileSizeBytes, entry.FileTicks), out var now)) continue;
+            if (!claimed.Add(now.FilePath)) continue;
+
+            Log.Info($"'{Path.GetFileName(entry.FilePath)}' was renamed to " +
+                     $"'{Path.GetFileName(now.FilePath)}'; keeping its settings.");
+
+            _byPath.Remove(Normalize(entry.FilePath));
+
+            entry.FilePath = now.FilePath;
+            entry.IsMissing = false;
+
+            _byPath[Normalize(entry.FilePath)] = entry;
+            moved.Add(entry.Id);
+            _dirty = true;
+        }
+
+        if (moved.Count > 0)
+        {
+            arrived.RemoveAll(e => claimed.Contains(e.FilePath));
+            gone.RemoveAll(e => moved.Contains(e.Id));
+        }
+
+        return moved.Count + AbsorbAlreadyAdded(gone);
+    }
+
+    /// <summary>
+    /// The same thing, one scan too late.
+    ///
+    /// A rename that happened before this was understood leaves the library holding both
+    /// halves already: the old entry marked missing, and the renamed file sitting beside it
+    /// as a separate sound that was added on some earlier scan. Matching a missing entry to
+    /// a sound that is present and identical clears the leftover, and hands over the name,
+    /// artwork and group it was still holding if the surviving one never got any.
+    /// </summary>
+    private int AbsorbAlreadyAdded(List<SoundEntry> gone)
+    {
+        if (gone.Count == 0) return 0;
+
+        // Everything still on disk. The entries being written off on this scan are not, and
+        // counting them would let a leftover match itself and stay exactly where it is.
+        var writtenOff = gone.Select(e => e.Id).ToHashSet(StringComparer.Ordinal);
+
+        var live = _data.Sounds
+            .Where(s => !s.IsMissing && s is { FileSizeBytes: > 0 } && !writtenOff.Contains(s.Id))
+            .GroupBy(s => (s.FileSizeBytes, s.FileTicks))
+            .Where(g => g.Count() == 1)
+            .ToDictionary(g => g.Key, g => g.Single());
+
+        if (live.Count == 0) return 0;
+
+        var absorbed = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var entry in gone)
+        {
+            if (entry.FileSizeBytes <= 0) continue;
+            if (!live.TryGetValue((entry.FileSizeBytes, entry.FileTicks), out var survivor)) continue;
+            if (ReferenceEquals(survivor, entry)) continue;
+
+            survivor.CustomName ??= entry.CustomName;
+            survivor.ImagePath ??= entry.ImagePath;
+            survivor.Emoji ??= entry.Emoji;
+            survivor.GroupId ??= entry.GroupId;
+
+            if (!survivor.IsFavorite) survivor.IsFavorite = entry.IsFavorite;
+
+            foreach (var tag in entry.Tags.Where(t => !survivor.Tags.Contains(t)))
+            {
+                survivor.Tags.Add(tag);
+            }
+
+            Log.Info($"'{Path.GetFileName(entry.FilePath)}' is already here as " +
+                     $"'{Path.GetFileName(survivor.FilePath)}'; dropping the missing one.");
+
+            absorbed.Add(entry.Id);
+            _dirty = true;
+        }
+
+        if (absorbed.Count == 0) return 0;
+
+        gone.RemoveAll(e => absorbed.Contains(e.Id));
+
+        foreach (var id in absorbed)
+        {
+            if (!_byId.TryGetValue(id, out var entry)) continue;
+
+            _data.Sounds.Remove(entry);
+            _byPath.Remove(Normalize(entry.FilePath));
+            _byId.Remove(id);
+        }
+
+        return absorbed.Count;
     }
 
     private static bool HasUserData(SoundEntry e) =>
