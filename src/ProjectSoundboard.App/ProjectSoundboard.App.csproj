@@ -11,7 +11,7 @@
     <RootNamespace>ProjectSoundboard.App</RootNamespace>
     <Product>Project Soundboard</Product>
     <AssemblyTitle>Project Soundboard</AssemblyTitle>
-    <Version>1.7.0</Version>
+    <Version>1.7.1</Version>
     <Company>Project Soundboard</Company>
     <Copyright>Copyright (C) 2026 KaikoClanworth1. Licensed under GPL-3.0-or-later.</Copyright>
     <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>

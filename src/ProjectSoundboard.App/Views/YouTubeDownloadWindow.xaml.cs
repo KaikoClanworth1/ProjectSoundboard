@@ -190,6 +190,10 @@ public partial class YouTubeDownloadWindow : Window
         ProblemText.Visibility = Visibility.Collapsed;
         DownloadButton.IsEnabled = false;
         DownloadButton.Content = "Download";
+
+        // Nothing looked up yet, so there is no title to tidy or to go back to.
+        AutoNameButton.IsEnabled = false;
+        ResetNameButton.IsEnabled = false;
     }
 
     private void OnNameChanged(object sender, TextChangedEventArgs e)
@@ -243,6 +247,25 @@ public partial class YouTubeDownloadWindow : Window
         }
 
         return changed;
+    }
+
+    /// <summary>The same tidy-up as the playlist button, for the one video.</summary>
+    private void OnAutoNameSingle(object sender, RoutedEventArgs e)
+    {
+        if (_found is null) return;
+
+        NameBox.Text = YouTubeDownloader.SafeFileName(TrackNaming.Clean(_found.Title));
+        NameBox.Focus();
+        NameBox.SelectAll();
+    }
+
+    private void OnResetNameSingle(object sender, RoutedEventArgs e)
+    {
+        if (_found is null) return;
+
+        NameBox.Text = YouTubeDownloader.SafeFileName(_found.Title);
+        NameBox.Focus();
+        NameBox.SelectAll();
     }
 
     private void OnSelectAll(object sender, RoutedEventArgs e) => SetAll(true);
@@ -342,6 +365,10 @@ public partial class YouTubeDownloadWindow : Window
         }
 
         DownloadButton.IsEnabled = NameBox.Text.Trim().Length > 0;
+
+        AutoNameButton.IsEnabled = true;
+        ResetNameButton.IsEnabled = true;
+
         NameBox.Focus();
         NameBox.SelectAll();
     }
@@ -594,6 +621,8 @@ public partial class YouTubeDownloadWindow : Window
 
         UrlBox.IsEnabled = !busy;
         NameBox.IsEnabled = !busy;
+        AutoNameButton.IsEnabled = !busy && _found is not null;
+        ResetNameButton.IsEnabled = !busy && _found is not null;
         FolderBox.IsEnabled = !busy;
         PlaylistCheck.IsEnabled = !busy;
         // The whole panel, not just the list: renaming or unticking tracks while they are

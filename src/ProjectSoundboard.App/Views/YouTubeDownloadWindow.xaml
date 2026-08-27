@@ -133,7 +133,19 @@
 
             <!-- Name, for a single video -->
             <StackPanel x:Name="SingleNamePanel">
-                <TextBlock Text="Save as" Style="{StaticResource FieldLabel}" Margin="0,14,0,5"/>
+                <Grid Margin="0,14,0,5">
+                    <TextBlock Text="Save as" Style="{StaticResource FieldLabel}" Margin="0"/>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button x:Name="AutoNameButton" Content="Auto name" Padding="10,3" FontSize="11.5"
+                                IsEnabled="False" Style="{StaticResource GhostButton}" Click="OnAutoNameSingle"
+                                ToolTip="Take Official Video, Lyrics, featured artists and the like off the name"
+                                AutomationProperties.Name="Auto name this one"/>
+                        <Button x:Name="ResetNameButton" Content="Reset" Padding="10,3" Margin="6,0,0,0" FontSize="11.5"
+                                IsEnabled="False" Style="{StaticResource GhostButton}" Click="OnResetNameSingle"
+                                ToolTip="Put the name back to the title YouTube gave it"
+                                AutomationProperties.Name="Reset this name"/>
+                    </StackPanel>
+                </Grid>
                 <TextBox x:Name="NameBox" Padding="9,7" TextChanged="OnNameChanged"
                          AutomationProperties.Name="Name to save it as"/>
                 <TextBlock x:Name="NameHint" Style="{StaticResource MutedText}" Margin="2,4,0,0"
