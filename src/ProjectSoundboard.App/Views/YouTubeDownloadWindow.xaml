@@ -71,6 +71,15 @@
                 <Grid>
                     <TextBlock x:Name="PlaylistTitle" Style="{StaticResource FieldLabel}" Margin="0"/>
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Content="Auto name" Padding="10,3" FontSize="11.5"
+                                Style="{StaticResource GhostButton}" Click="OnAutoName"
+                                ToolTip="Take Official Video, Lyrics, featured artists and the like off every name"
+                                AutomationProperties.Name="Auto name"/>
+                        <Button Content="Reset" Padding="10,3" Margin="6,0,0,0" FontSize="11.5"
+                                Style="{StaticResource GhostButton}" Click="OnResetNames"
+                                ToolTip="Put every name back to the title YouTube gave it"
+                                AutomationProperties.Name="Reset names"/>
+                        <Border Width="1" Margin="9,2" Background="{DynamicResource BorderBrushSoft}"/>
                         <Button Content="All" Padding="10,3" FontSize="11.5"
                                 Style="{StaticResource GhostButton}" Click="OnSelectAll"
                                 AutomationProperties.Name="Include every track"/>

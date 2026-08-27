@@ -206,6 +206,45 @@ public partial class YouTubeDownloadWindow : Window
         DownloadButton.IsEnabled = _found is not null && !_busy && NameBox.Text.Trim().Length > 0;
     }
 
+    /// <summary>
+    /// Tidy every name at once. Offered rather than done automatically: the titles are what
+    /// the uploader called them, and replacing them without being asked is presumptuous when
+    /// the rules can only ever be mostly right. Reset is next to it for when they are not.
+    /// </summary>
+    private void OnAutoName(object sender, RoutedEventArgs e)
+    {
+        var changed = Rename(track => TrackNaming.Clean(track.Video.Title));
+
+        PlaylistHint.Text = changed == 0
+            ? $"Nothing to tidy — those {_tracks.Count} names are already as short as they get."
+            : $"Renamed {changed} of {_tracks.Count}. Change any of them by hand, or Reset to put them back.";
+    }
+
+    private void OnResetNames(object sender, RoutedEventArgs e)
+    {
+        var changed = Rename(track => track.Video.Title);
+
+        PlaylistHint.Text = changed == 0
+            ? "Those are the titles as they came."
+            : $"Put {changed} back to the title YouTube gave it.";
+    }
+
+    private int Rename(Func<PlaylistTrack, string> naming)
+    {
+        var changed = 0;
+
+        foreach (var track in _tracks)
+        {
+            var name = YouTubeDownloader.SafeFileName(naming(track));
+            if (string.Equals(name, track.Name, StringComparison.Ordinal)) continue;
+
+            track.Name = name;
+            changed++;
+        }
+
+        return changed;
+    }
+
     private void OnSelectAll(object sender, RoutedEventArgs e) => SetAll(true);
 
     private void OnSelectNone(object sender, RoutedEventArgs e) => SetAll(false);
@@ -557,7 +596,9 @@ public partial class YouTubeDownloadWindow : Window
         NameBox.IsEnabled = !busy;
         FolderBox.IsEnabled = !busy;
         PlaylistCheck.IsEnabled = !busy;
-        TrackList.IsEnabled = !busy;
+        // The whole panel, not just the list: renaming or unticking tracks while they are
+        // being fetched changes what the run is doing halfway through it.
+        PlaylistPanel.IsEnabled = !busy;
         LookUpButton.IsEnabled = !busy && YtDlpTool.Locate() is not null;
         GetToolButton.IsEnabled = !busy;
 
