@@ -32,6 +32,13 @@ public sealed class PlaylistTrack : INotifyPropertyChanged
 
     public string DurationText => Video.Duration > TimeSpan.Zero ? Video.DurationText : "—";
 
+    /// <summary>The sound already in the library that this track looks like, if there is one.</summary>
+    public AlreadyHave? Have { get; init; }
+
+    public bool IsDuplicate => Have is not null;
+
+    public string HaveText => Have is null ? string.Empty : $"already have “{Have.Name}”";
+
     public event PropertyChangedEventHandler? PropertyChanged;
 
     private void Changed([CallerMemberName] string? name = null) =>
@@ -282,10 +289,20 @@ public partial class YouTubeDownloadWindow : Window
     private void RefreshPlaylistCount()
     {
         var chosen = _tracks.Count(t => t.Include);
+        var known = _tracks.Count(t => t.IsDuplicate);
 
         PlaylistHint.Text = chosen == _tracks.Count
             ? $"{_tracks.Count} track{(_tracks.Count == 1 ? "" : "s")}. Rename any of them before downloading."
             : $"{chosen} of {_tracks.Count} chosen.";
+
+        // Said once, up here, as well as against each track: with a hundred rows the ones
+        // that were left unticked are easy to scroll straight past.
+        if (known > 0)
+        {
+            PlaylistHint.Text +=
+                $" {known} {(known == 1 ? "is" : "are")} already in your library and left unticked — " +
+                "tick any of them to download it anyway.";
+        }
 
         DownloadButton.Content = chosen > 0 ? $"Download {chosen}" : "Download";
         DownloadButton.IsEnabled = chosen > 0 && !_busy;
@@ -358,6 +375,15 @@ public partial class YouTubeDownloadWindow : Window
         SingleNamePanel.Visibility = Visibility.Visible;
         PlaylistPanel.Visibility = Visibility.Collapsed;
 
+        // A warning, not a refusal: the Download button stays live, because wanting a second
+        // copy is a perfectly good reason to be here.
+        var already = new DuplicateIndex(_services.Library.Sounds).Find(info.Title, info.Duration);
+
+        if (already is not null)
+        {
+            Notice($"“{already.Name}” is already in your library. Download it again if you want to.");
+        }
+
         // The title is the obvious name, and almost always the right one.
         if (!_nameEdited || NameBox.Text.Trim().Length == 0)
         {
@@ -405,14 +431,23 @@ public partial class YouTubeDownloadWindow : Window
         _playlist = list;
         _tracks.Clear();
 
+        var have = new DuplicateIndex(_services.Library.Sounds);
         var number = 1;
+
         foreach (var item in list.Items)
         {
+            var already = have.Find(item.Title, item.Duration);
+
             var track = new PlaylistTrack
             {
                 Video = item,
                 Number = number++,
-                Name = YouTubeDownloader.SafeFileName(item.Title)
+                Name = YouTubeDownloader.SafeFileName(item.Title),
+                Have = already,
+
+                // Left unticked rather than hidden or refused: this is somebody's library and
+                // they may well want the other copy. It is one click to take it anyway.
+                Include = already is null
             };
 
             // Re-count as tracks are ticked and unticked, so the button always says how
@@ -725,8 +760,21 @@ public partial class YouTubeDownloadWindow : Window
     private void Problem(string message)
     {
         ProblemText.Text = message;
+        ProblemText.Foreground = (System.Windows.Media.Brush)FindResource("DangerBrush");
         ProblemText.Visibility = Visibility.Visible;
         ProgressPanel.Visibility = Visibility.Collapsed;
+    }
+
+    /// <summary>
+    /// Something worth saying that is not something going wrong. Same place, different
+    /// colour: already having a song does not stop anything, so it should not look like
+    /// a failure.
+    /// </summary>
+    private void Notice(string message)
+    {
+        ProblemText.Text = message;
+        ProblemText.Foreground = (System.Windows.Media.Brush)FindResource("WarningBrush");
+        ProblemText.Visibility = Visibility.Visible;
     }
 
     private void OnCancel(object sender, RoutedEventArgs e)

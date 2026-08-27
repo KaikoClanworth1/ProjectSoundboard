@@ -104,6 +104,10 @@
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
 
                                         <CheckBox IsChecked="{Binding Include}" VerticalAlignment="Center"
                                                   AutomationProperties.Name="Include this track"/>
@@ -120,6 +124,15 @@
                                         <TextBlock Grid.Column="3" Text="{Binding DurationText}"
                                                    VerticalAlignment="Center" Margin="8,0,4,0"
                                                    Style="{StaticResource MutedText}"/>
+
+                                        <!-- Only on the tracks that are already in the library. -->
+                                        <TextBlock Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="2"
+                                                   Text="{Binding HaveText}" FontSize="11"
+                                                   Margin="2,2,0,2" TextTrimming="CharacterEllipsis"
+                                                   Foreground="{DynamicResource WarningBrush}"
+                                                   AutomationProperties.Name="Already in the library"
+                                                   Visibility="{Binding IsDuplicate,
+                                                                Converter={StaticResource BoolToVisibility}}"/>
                                     </Grid>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
