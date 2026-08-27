@@ -38,7 +38,7 @@ public static partial class TrackNaming
         "official", "video", "audio", "music", "lyric", "lyrics", "visualiser", "visualizer",
         "hd", "hq", "4k", "8k", "uhd", "mv", "full", "clip", "teaser", "trailer",
         "promo", "nightcore", "topic", "creditless", "noncredit", "non-credit", "nontelop",
-        "vostfr", "sub", "subbed", "dub", "dubbed", "raw", "clean"
+        "vostfr", "sub", "subbed", "dub", "dubbed", "raw", "clean", "performance"
     ];
 
     /// <summary>
@@ -69,6 +69,7 @@ public static partial class TrackNaming
         text = StripFeatured(text);
         text = StripByArtist(text);
 
+        text = LabelTail().Replace(text, string.Empty);
         text = StripNoiseTail(text);
         text = StripTrailingNoise(text);
         text = StripThemeArtist(text);
@@ -105,8 +106,14 @@ public static partial class TrackNaming
 
             if (ThemeMark().IsMatch(inner)) return " Opening ";
 
-            if (VersionWords.Any(w => inner.Contains(w, StringComparison.OrdinalIgnoreCase)))
+            // A version word only earns its keep in a bracket that is about the recording.
+            // "(Performance Edit)" has one, but "performance" is a word about the video, and
+            // the song is the same song — where "(Radio Edit)" really is a different cut.
+            if (!HasNoiseWord(inner) &&
+                VersionWords.Any(w => inner.Contains(w, StringComparison.OrdinalIgnoreCase)))
+            {
                 return $" ({inner}) ";
+            }
 
             // Round brackets after a song hold an alternate title or a credit, and go. The
             // square and Japanese ones are used the other way round — they hold the name of
@@ -122,6 +129,12 @@ public static partial class TrackNaming
 
             return inner.Any(char.IsLetter) && !Cjk().IsMatch(inner) ? $" {inner} " : " ";
         });
+
+    /// <summary>Whether a bracket mentions the upload at all, rather than only the song.</summary>
+    private static bool HasNoiseWord(string inner) =>
+        inner.Split([' ', ',', '·', '/', '+'], StringSplitOptions.RemoveEmptyEntries)
+             .Any(word => NoiseWords.Contains(
+                 word.Trim('.', '!', '?', '-', '–', '—').ToLowerInvariant()));
 
     /// <summary>Whether a bracket holds nothing but notes about the upload.</summary>
     private static bool IsNoiseOnly(string inner)
@@ -364,6 +377,12 @@ public static partial class TrackNaming
 
     [GeneratedRegex(@"^\d{3,4}p?$|^\d+kbps$")]
     private static partial Regex Resolution();
+
+    // The label, signed off on the end: "Cheerleader (Felix Jaehn Remix) Ultra Records". Two
+    // words, because "Records" on its own is a word a song could end on.
+    [GeneratedRegex(@"\s+[\w&'’.-]+\s+(?:Records|Recordings|Music\s+Group|Entertainment)\s*$",
+                    RegexOptions.IgnoreCase)]
+    private static partial Regex LabelTail();
 
     [GeneratedRegex(@"\s{2,}")]
     private static partial Regex Spaces();

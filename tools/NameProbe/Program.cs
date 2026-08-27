@@ -77,6 +77,15 @@ internal static class Program
 
         new("Calvin Harris, Rihanna - This Is What You Came For (Official Video)",
             "Calvin Harris Rihanna - This Is What You Came For"),
+
+        // A version word in the bracket, but "performance" is about the video, not the cut.
+        new("Sia - Cheap Thrills (Performance Edit)",
+            "Sia - Cheap Thrills"),
+
+        // The label signed on the end. The remix is a different recording, so it stays —
+        // see the note with this case in the release.
+        new("OMI - Cheerleader (Felix Jaehn Remix) Ultra Records",
+            "OMI - Cheerleader (Felix Jaehn Remix)"),
     ];
 
     private static readonly Case[] Anime =

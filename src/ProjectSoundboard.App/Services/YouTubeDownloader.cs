@@ -463,8 +463,22 @@ public sealed partial class YouTubeDownloader
             AddClient(arguments, client);
             arguments.Add(url);
 
-            var (code, _, error) = await RunAsync(
-                arguments, TimeSpan.FromHours(2), progress, ct).ConfigureAwait(false);
+            int code;
+            string error;
+
+            try
+            {
+                (code, _, error) = await RunAsync(
+                    arguments, TimeSpan.FromHours(2), progress, ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // Killed part way through downloading or converting, so whatever is on disk
+                // under this name is half a file. Left there, the library would pick it up
+                // and list it as a sound that will not play.
+                Discard(folder, stem);
+                throw;
+            }
 
             if (code == 0)
             {
@@ -540,6 +554,27 @@ public sealed partial class YouTubeDownloader
         }
 
         return Path.Combine(folder, $"{stem} ({Guid.NewGuid():N}){extension}");
+    }
+
+    /// <summary>
+    /// Remove the part-written files a killed download leaves behind. Best effort: ffmpeg may
+    /// still have a handle on one for a moment, and a file left behind is a smaller problem
+    /// than throwing on the way out of a cancel.
+    /// </summary>
+    private static void Discard(string folder, string stem)
+    {
+        try
+        {
+            foreach (var file in Directory.EnumerateFiles(folder, stem + ".*").ToList())
+            {
+                try { File.Delete(file); }
+                catch (Exception ex) { Log.Debug($"Could not remove '{file}': {ex.Message}"); }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Debug($"Could not tidy up after a cancelled download: {ex.Message}");
+        }
     }
 
     private async Task<(int Code, string Output, string Error)> RunAsync(

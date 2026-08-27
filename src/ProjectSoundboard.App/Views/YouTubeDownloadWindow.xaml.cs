@@ -58,6 +58,7 @@ public partial class YouTubeDownloadWindow : Window
     private PlaylistInfo? _playlist;
     private bool _nameEdited;
     private bool _busy;
+    private bool _closed;
 
     public YouTubeDownloadWindow(AppServices services, string? suggestedFolder)
     {
@@ -464,7 +465,7 @@ public partial class YouTubeDownloadWindow : Window
 
             if (_playlist is not null)
             {
-                await DownloadPlaylistAsync(downloader, folder);
+                await DownloadPlaylistAsync(path, folder);
             }
             else if (_found is not null)
             {
@@ -474,7 +475,7 @@ public partial class YouTubeDownloadWindow : Window
         catch (OperationCanceledException)
         {
             // Whatever finished before it was stopped is still worth keeping.
-            if (_downloaded.Count > 0) DialogResult = true;
+            if (_downloaded.Count > 0) Finish();
             else Problem("Cancelled.");
         }
         catch (Exception ex)
@@ -484,6 +485,29 @@ public partial class YouTubeDownloadWindow : Window
         finally
         {
             Busy(false);
+        }
+    }
+
+    /// <summary>
+    /// Close with what was downloaded, if there is still a window to close.
+    ///
+    /// A download that is cancelled finishes after the window has gone, and setting the
+    /// result on a window that is no longer a dialog throws. Thrown from inside the catch
+    /// that handles the cancelling, it goes straight past the catch below it and out of an
+    /// async void, which ends the whole app rather than the download.
+    /// </summary>
+    private void Finish()
+    {
+        if (_closed) return;
+
+        try
+        {
+            DialogResult = true;
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Closed between the check and here.
+            Log.Debug($"The download window had already closed: {ex.Message}");
         }
     }
 
@@ -507,62 +531,115 @@ public partial class YouTubeDownloadWindow : Window
         _downloaded.Add(file);
         Log.Info($"Downloaded '{Path.GetFileName(file)}' into {folder}.");
 
-        DialogResult = true;
+        Finish();
     }
 
+    /// <summary>How many tracks are fetched at the same time.</summary>
+    private const int AtOnce = 4;
+
     /// <summary>
-    /// One at a time, on purpose. Several at once saturates the connection and makes all of
-    /// them slow, and it makes the progress meaningless — which of five is this?
+    /// Four at a time. One at a time leaves the connection idle while each track is being
+    /// converted, and a long list spends a good part of its time doing nothing; many more
+    /// than four only divides the same connection into thinner shares and makes YouTube
+    /// likelier to start refusing.
+    ///
+    /// Each gets its own downloader: the last error is kept on the instance, and four of them
+    /// sharing one would overwrite each other's.
     /// </summary>
-    private async Task DownloadPlaylistAsync(YouTubeDownloader downloader, string folder)
+    private async Task DownloadPlaylistAsync(string toolPath, string folder)
     {
         var chosen = _tracks.Where(t => t.Include).ToList();
         if (chosen.Count == 0) return;
 
+        // Taken once. The window may close while these are still winding down, and reading
+        // it off the source afterwards would be reading a disposed object.
+        var token = _work!.Token;
+
         var failures = new List<string>();
+        var percent = new double[chosen.Count];
+        var running = 0;
+        var done = 0;
+        string? firstError = null;
+
+        // Made here, on the UI thread, so each one reports back onto it.
+        var progresses = new IProgress<DownloadProgress>[chosen.Count];
 
         for (var i = 0; i < chosen.Count; i++)
         {
-            _work!.Token.ThrowIfCancellationRequested();
-
-            var track = chosen[i];
             var index = i;
 
-            var progress = new Progress<DownloadProgress>(p =>
+            progresses[i] = new Progress<DownloadProgress>(p =>
             {
-                // The bar is the whole job; the text says which track it is on.
-                Progress.Value = (index + p.Percent / 100.0) / chosen.Count * 100.0;
-                ProgressText.Text = $"{index + 1} of {chosen.Count}  ·  {track.Name}  ·  {p.Stage}";
+                percent[index] = p.Percent;
+                ShowOverall();
             });
-
-            var name = track.Name.Trim().Length > 0 ? track.Name : track.Video.Title;
-
-            var file = await downloader.DownloadMp3Async(
-                track.Video.Url, folder, name, 192, progress, _work.Token);
-
-            if (file is null)
-            {
-                // One unavailable track does not stop the other nineteen.
-                failures.Add(track.Name);
-                Log.Warn($"Playlist track '{track.Name}' failed: {downloader.LastError}");
-                continue;
-            }
-
-            _downloaded.Add(file);
-            track.Include = false;   // shows what is done if this is stopped part way
         }
+
+        void ShowOverall()
+        {
+            Progress.Value = percent.Sum() / chosen.Count;
+
+            ProgressText.Text = running > 0
+                ? $"{done} of {chosen.Count} done  ·  {running} downloading"
+                : $"{done} of {chosen.Count} done";
+        }
+
+        using var slots = new SemaphoreSlim(AtOnce, AtOnce);
+
+        async Task Fetch(PlaylistTrack track, int index)
+        {
+            await slots.WaitAsync(token);
+
+            running++;
+            ShowOverall();
+
+            try
+            {
+                token.ThrowIfCancellationRequested();
+
+                var worker = new YouTubeDownloader(toolPath);
+                var name = track.Name.Trim().Length > 0 ? track.Name : track.Video.Title;
+
+                var file = await worker.DownloadMp3Async(
+                    track.Video.Url, folder, name, 192, progresses[index], token);
+
+                if (file is null)
+                {
+                    // One unavailable track does not stop the other nineteen.
+                    failures.Add(track.Name);
+                    firstError ??= worker.LastError;
+                    Log.Warn($"Playlist track '{track.Name}' failed: {worker.LastError}");
+                    return;
+                }
+
+                _downloaded.Add(file);
+                track.Include = false;   // shows what is done if this is stopped part way
+                percent[index] = 100;
+                done++;
+            }
+            finally
+            {
+                running--;
+                ShowOverall();
+                slots.Release();
+            }
+        }
+
+        // WhenAll waits for every one of them before it throws, so by the time a cancel comes
+        // back out of here nothing is still writing to the folder.
+        await Task.WhenAll(chosen.Select(Fetch));
 
         FailedCount = failures.Count;
         Log.Info($"Playlist: {_downloaded.Count} downloaded into {folder}, {failures.Count} failed.");
 
         if (_downloaded.Count > 0)
         {
-            DialogResult = true;
+            Finish();
             return;
         }
 
         Problem(failures.Count > 0
-            ? $"None of them could be fetched. The first said: {downloader.LastError}"
+            ? $"None of them could be fetched. The first said: {firstError}"
             : "Nothing was downloaded.");
     }
 
@@ -657,7 +734,13 @@ public partial class YouTubeDownloadWindow : Window
         // Cancel means stop what is running; the second press closes the window.
         if (_busy)
         {
+            Log.Debug("Download cancelled by the Cancel button.");
             _work?.Cancel();
+
+            // Cancel carries IsCancel so Escape works, and that is WPF's cue to close the
+            // dialog. Not while there is something to stop: the window has to outlive the
+            // download long enough to report what it managed to get.
+            e.Handled = true;
             return;
         }
 
@@ -666,8 +749,14 @@ public partial class YouTubeDownloadWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        _closed = true;
+        Log.Debug($"Download window closed (a download was running: {_busy}).");
+
+        // Cancelled, but not disposed: a download that is still winding down holds a token
+        // from this, and taking the source away underneath it throws where it is awaited.
+        // It is collected once the last of them has let go.
         _work?.Cancel();
-        _work?.Dispose();
+
         base.OnClosed(e);
     }
 }
