@@ -115,6 +115,25 @@ public sealed partial class YouTubeDownloader
     }
 
     /// <summary>
+    /// The video a link names, if it names one at all. A link that only carries a list — a
+    /// bare /playlist or a channel — names none.
+    /// </summary>
+    public static string? VideoIdOf(string? url)
+    {
+        var single = Normalise(url ?? string.Empty);
+
+        const string marker = "watch?v=";
+        var at = single.IndexOf(marker, StringComparison.Ordinal);
+        if (at < 0) return null;
+
+        var id = single[(at + marker.Length)..];
+        var end = id.IndexOfAny(['&', '#', '?']);
+
+        id = end < 0 ? id : id[..end];
+        return id.Length == 0 ? null : id;
+    }
+
+    /// <summary>
     /// Whether a link carries a playlist at all, so the playlist tick can be offered already
     /// on when it obviously applies.
     /// </summary>
@@ -128,11 +147,30 @@ public sealed partial class YouTubeDownloader
     }
 
     /// <summary>
-    /// The playlist a link belongs to, rather than the one video in it.
+    /// A Mix rather than a playlist: the endless radio YouTube builds as somebody listens,
+    /// which nobody made and which is different every time. Their ids begin with RD.
+    /// </summary>
+    public static bool IsMixList(string? url)
+    {
+        if (!LooksLikeYouTube(url)) return false;
+
+        try
+        {
+            var list = System.Web.HttpUtility.ParseQueryString(new Uri(url!.Trim()).Query)["list"];
+            return list is not null && list.StartsWith("RD", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (UriFormatException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// The link to hand over when the playlist tick is on.
     ///
-    /// The opposite of <see cref="Normalise"/>, and used only when the playlist tick is on:
-    /// pasting a link copied mid-playlist and asking for the playlist is a clear request for
-    /// the list, where without the tick that same link means the one video being watched.
+    /// The opposite of <see cref="Normalise"/>: pasting a link copied mid-playlist and asking
+    /// for the playlist is a clear request for the list, where without the tick that same link
+    /// means the one video being watched.
     /// </summary>
     public static string AsPlaylistUrl(string url)
     {
@@ -141,9 +179,19 @@ public sealed partial class YouTubeDownloader
         try
         {
             var parts = new Uri(url);
-            var list = System.Web.HttpUtility.ParseQueryString(parts.Query)["list"];
+            var query = System.Web.HttpUtility.ParseQueryString(parts.Query);
+            var list = query["list"];
 
-            if (!string.IsNullOrEmpty(list)) return $"https://www.youtube.com/playlist?list={list}";
+            if (string.IsNullOrEmpty(list)) return url;
+
+            // A watch link that carries a list is handed over exactly as it is, rather than
+            // tidied into the shorter playlist?list= form. A Mix has no page of its own —
+            // asking for one comes back "this playlist type is unviewable" — and can only be
+            // read from the watch link it was built around. Real playlists read fine either
+            // way, so keeping the link whole is right for both.
+            if (!string.IsNullOrEmpty(query["v"])) return url;
+
+            return $"https://www.youtube.com/playlist?list={list}";
         }
         catch (UriFormatException)
         {
@@ -325,6 +373,17 @@ public sealed partial class YouTubeDownloader
                 LastError = $"Could not read the playlist: {ex.Message}";
                 return null;
             }
+        }
+
+        // yt-dlp's own words for this one are true but unhelpful, and it is the most likely
+        // way to arrive here: a Mix link with the video dropped off it has nothing left to
+        // build the radio around, so YouTube has no list to give.
+        if (LastError is not null &&
+            LastError.Contains("unviewable", StringComparison.OrdinalIgnoreCase))
+        {
+            LastError = "That is a YouTube Mix — the radio it makes up as you listen, which " +
+                        "has no fixed list. Paste the full link from the address bar, the one " +
+                        "with the video in it, and its Mix can be read.";
         }
 
         return null;

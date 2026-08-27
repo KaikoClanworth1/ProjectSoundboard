@@ -53,3 +53,4 @@ $RECYCLE.BIN/
 *.snupkg
 packages/
 .nuget/
+ProjectSoundboard-v*-win-x64.zip

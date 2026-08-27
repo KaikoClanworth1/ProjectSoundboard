@@ -52,15 +52,38 @@ internal static class Program
         Console.WriteLine();
         Console.WriteLine("=== playlist links ===");
 
-        // Without the tick, a watch link carrying a list means the video. With it, the list.
+        // Without the tick, a watch link carrying a list means the video. With it, the list —
+        // and the link is handed over whole, because a Mix can only be read from the watch
+        // link it was built around. Rewriting it to playlist?list= gets "unviewable".
         failures += Playlist("https://www.youtube.com/watch?v=ABCDEFGHIJK&list=PL123", true,
-                             "https://www.youtube.com/playlist?list=PL123");
+                             "https://www.youtube.com/watch?v=ABCDEFGHIJK&list=PL123");
+
+        failures += Playlist("https://www.youtube.com/watch?v=5QIQ5QHqDbw&list=RDG6AcBEz3Qxg&start_radio=1&index=1", true,
+                             "https://www.youtube.com/watch?v=5QIQ5QHqDbw&list=RDG6AcBEz3Qxg&start_radio=1&index=1");
 
         failures += Playlist("https://www.youtube.com/playlist?list=PL123", true,
                              "https://www.youtube.com/playlist?list=PL123");
 
         failures += Playlist("https://www.youtube.com/watch?v=ABCDEFGHIJK", false,
                              "https://www.youtube.com/watch?v=ABCDEFGHIJK");
+
+        Console.WriteLine();
+        Console.WriteLine("=== mixes, which are not playlists anybody made ===");
+
+        // The tick is offered on its own for a real list, but never for a Mix: a link copied
+        // while the radio plays nearly always means that song, not the next four hundred.
+        failures += Mix("https://www.youtube.com/watch?v=ABCDEFGHIJK&list=RDG6AcBEz3Qxg", true);
+        failures += Mix("https://www.youtube.com/watch?v=ABCDEFGHIJK&list=RDMMG6AcBEz3Qxg", true);
+        failures += Mix("https://www.youtube.com/watch?v=ABCDEFGHIJK&list=PL123", false);
+        failures += Mix("https://www.youtube.com/watch?v=ABCDEFGHIJK", false);
+
+        Console.WriteLine();
+        Console.WriteLine("=== the video a link names, for falling back to it ===");
+
+        failures += Video("https://www.youtube.com/watch?v=ABCDEFGHIJK&list=RDxyz", "ABCDEFGHIJK");
+        failures += Video("https://youtu.be/ABCDEFGHIJK?si=tracking", "ABCDEFGHIJK");
+        failures += Video("https://www.youtube.com/playlist?list=PL123", null);
+        failures += Video("https://www.youtube.com/@jawed/videos", null);
 
         Console.WriteLine();
         Console.WriteLine("=== titles into filenames ===");
@@ -234,6 +257,26 @@ internal static class Program
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "LIVE PASS" : $"{failures} FAILED");
         return failures == 0 ? 0 : 1;
+    }
+
+    private static int Mix(string input, bool expected)
+    {
+        var actual = YouTubeDownloader.IsMixList(input);
+        var ok = actual == expected;
+
+        Console.WriteLine($"  {(ok ? "PASS" : "FAIL")}  {(expected ? "a mix    " : "a list   ")}  {Shorten(input)}");
+        return ok ? 0 : 1;
+    }
+
+    private static int Video(string input, string? expected)
+    {
+        var actual = YouTubeDownloader.VideoIdOf(input);
+        var ok = actual == expected;
+
+        Console.WriteLine($"  {(ok ? "PASS" : "FAIL")}  {actual ?? "(no video)",-14}  {Shorten(input)}");
+        if (!ok) Console.WriteLine($"        expected {expected ?? "(no video)"}");
+
+        return ok ? 0 : 1;
     }
 
     private static int Playlist(string input, bool expectedIsPlaylist, string expectedUrl)

@@ -155,13 +155,28 @@ public partial class YouTubeDownloadWindow : Window
 
         // A link that plainly carries a playlist offers the tick already on, rather than
         // making somebody look it up, get one video, and work out why.
-        if (!_busy && YouTubeDownloader.LooksLikePlaylist(UrlBox.Text) && PlaylistCheck.IsChecked != true)
+        //
+        // Not for a Mix, though. Copying a link while the radio plays is how most links get
+        // copied, and it almost always means this song rather than the next four hundred
+        // YouTube has lined up. The tick still works on it for anybody who does want them.
+        if (!_busy &&
+            YouTubeDownloader.LooksLikePlaylist(UrlBox.Text) &&
+            !YouTubeDownloader.IsMixList(UrlBox.Text) &&
+            PlaylistCheck.IsChecked != true)
         {
             PlaylistCheck.IsChecked = true;
         }
     }
 
-    private void OnPlaylistToggled(object sender, RoutedEventArgs e) => ClearResults();
+    private void OnPlaylistToggled(object sender, RoutedEventArgs e)
+    {
+        // Ticking it by hand means the last lookup no longer applies. The tick moving on its
+        // own during a lookup — the fallback turning it off after a Mix could not be read —
+        // means the opposite, so it must not throw away what the fallback just found.
+        if (_busy) return;
+
+        ClearResults();
+    }
 
     private void ClearResults()
     {
@@ -298,7 +313,25 @@ public partial class YouTubeDownloadWindow : Window
 
         if (list is null)
         {
-            Problem(downloader.LastError ?? "Could not read that playlist.");
+            var why = downloader.LastError ?? "Could not read that playlist.";
+
+            // A list that cannot be read is not a reason to leave somebody staring at a
+            // dialog that will not do anything. If the link still names a video — and a
+            // link copied out of a playlist always does — fall back to offering that one,
+            // ready to download, and say why the rest of them are not there.
+            if (!string.IsNullOrEmpty(YouTubeDownloader.VideoIdOf(url)))
+            {
+                await LookUpSingleAsync(downloader, YouTubeDownloader.Normalise(url));
+
+                if (_found is not null)
+                {
+                    PlaylistCheck.IsChecked = false;
+                    Problem($"{why}  The video itself is ready to download.");
+                    return;
+                }
+            }
+
+            Problem(why);
             return;
         }
 
