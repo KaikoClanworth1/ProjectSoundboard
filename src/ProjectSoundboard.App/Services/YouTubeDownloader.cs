@@ -16,6 +16,9 @@ public sealed record VideoInfo(string Url, string Title, string? Uploader, TimeS
 
 public sealed record DownloadProgress(double Percent, string Stage);
 
+/// <summary>A playlist and what is in it, read without downloading any of it.</summary>
+public sealed record PlaylistInfo(string Url, string Title, IReadOnlyList<VideoInfo> Items);
+
 /// <summary>
 /// Fetches the audio from a YouTube link as an MP3, straight into a library folder.
 ///
@@ -111,6 +114,46 @@ public sealed partial class YouTubeDownloader
         return url;
     }
 
+    /// <summary>
+    /// Whether a link carries a playlist at all, so the playlist tick can be offered already
+    /// on when it obviously applies.
+    /// </summary>
+    public static bool LooksLikePlaylist(string? url)
+    {
+        if (!LooksLikeYouTube(url)) return false;
+
+        var lowered = url!.ToLowerInvariant();
+        return lowered.Contains("/playlist", StringComparison.Ordinal)
+               || lowered.Contains("list=", StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The playlist a link belongs to, rather than the one video in it.
+    ///
+    /// The opposite of <see cref="Normalise"/>, and used only when the playlist tick is on:
+    /// pasting a link copied mid-playlist and asking for the playlist is a clear request for
+    /// the list, where without the tick that same link means the one video being watched.
+    /// </summary>
+    public static string AsPlaylistUrl(string url)
+    {
+        url = (url ?? string.Empty).Trim();
+
+        try
+        {
+            var parts = new Uri(url);
+            var list = System.Web.HttpUtility.ParseQueryString(parts.Query)["list"];
+
+            if (!string.IsNullOrEmpty(list)) return $"https://www.youtube.com/playlist?list={list}";
+        }
+        catch (UriFormatException)
+        {
+            // Left alone; validation refuses it separately.
+        }
+
+        // A channel or a bare /playlist link is already what it needs to be.
+        return url;
+    }
+
     /// <summary>A video title turned into something Windows will accept as a filename.</summary>
     public static string SafeFileName(string? text, string fallback = "download")
     {
@@ -181,6 +224,107 @@ public sealed partial class YouTubeDownloader
             }
 
             LastError = Tidy(error, output);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Most tracks taken from one playlist. A channel link can name thousands of videos, and
+    /// the first anybody would know about it is a full disk.
+    /// </summary>
+    public const int MaxPlaylistItems = 100;
+
+    /// <summary>
+    /// Read what is in a playlist without downloading any of it.
+    ///
+    /// Flat, deliberately: asking yt-dlp for full details of every entry means one request
+    /// per video, which on a hundred-track list is a minute of waiting before anything can
+    /// be shown. Flat gives the title, length and id of each in a single request, which is
+    /// all that is needed to list them and name them.
+    /// </summary>
+    public async Task<PlaylistInfo?> ProbePlaylistAsync(string url, CancellationToken ct = default)
+    {
+        LastError = null;
+        url = AsPlaylistUrl(url);
+
+        if (!LooksLikeYouTube(url))
+        {
+            LastError = "That does not look like a YouTube link.";
+            return null;
+        }
+
+        foreach (var client in ClientFallbacks)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var arguments = new List<string>
+            {
+                "--dump-single-json", "--skip-download", "--flat-playlist", "--yes-playlist",
+                "--no-warnings", "--quiet", "--socket-timeout", "20",
+                "--playlist-items", $"1:{MaxPlaylistItems}"
+            };
+
+            AddClient(arguments, client);
+            arguments.Add(url);
+
+            // Longer than a single video: a large list takes a moment even flat.
+            var (code, output, error) = await RunAsync(
+                arguments, TimeSpan.FromMinutes(3), null, ct).ConfigureAwait(false);
+
+            if (code != 0 || output.Length == 0)
+            {
+                LastError = Tidy(error, output);
+                continue;
+            }
+
+            try
+            {
+                using var document = System.Text.Json.JsonDocument.Parse(output);
+                var root = document.RootElement;
+
+                if (!root.TryGetProperty("entries", out var entries) ||
+                    entries.ValueKind != System.Text.Json.JsonValueKind.Array)
+                {
+                    LastError = "That link does not contain a playlist.";
+                    return null;
+                }
+
+                var items = new List<VideoInfo>();
+
+                foreach (var entry in entries.EnumerateArray())
+                {
+                    // Private and deleted entries come back as nulls with no id. They are
+                    // not errors, they are just gone, so they are left out rather than
+                    // listed as tracks that will fail.
+                    var id = Text(entry, "id");
+                    if (string.IsNullOrWhiteSpace(id)) continue;
+
+                    var seconds = entry.TryGetProperty("duration", out var d) &&
+                                  d.ValueKind == System.Text.Json.JsonValueKind.Number
+                        ? d.GetDouble()
+                        : 0;
+
+                    items.Add(new VideoInfo(
+                        $"https://www.youtube.com/watch?v={id}",
+                        Text(entry, "title") ?? "Untitled",
+                        Text(entry, "uploader") ?? Text(entry, "channel"),
+                        TimeSpan.FromSeconds(seconds)));
+                }
+
+                if (items.Count == 0)
+                {
+                    LastError = "That playlist has nothing in it that can be downloaded.";
+                    return null;
+                }
+
+                return new PlaylistInfo(url, Text(root, "title") ?? "Playlist", items);
+            }
+            catch (Exception ex)
+            {
+                LastError = $"Could not read the playlist: {ex.Message}";
+                return null;
+            }
         }
 
         return null;

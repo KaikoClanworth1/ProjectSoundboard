@@ -36,10 +36,20 @@
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <TextBox x:Name="UrlBox" Padding="9,7" TextChanged="OnUrlChanged"
                          AutomationProperties.Name="YouTube link"/>
-                <Button x:Name="LookUpButton" Grid.Column="1" Content="Look up" Margin="8,0,0,0"
+
+                <!-- Next to Look up on purpose: it changes what Look up does, so it belongs
+                     with it rather than somewhere further down the dialog. -->
+                <CheckBox x:Name="PlaylistCheck" Grid.Column="1" Content="Playlist"
+                          VerticalAlignment="Center" Margin="10,0,2,0"
+                          Checked="OnPlaylistToggled" Unchecked="OnPlaylistToggled"
+                          ToolTip="Read every track in the playlist, so you can name them before downloading"
+                          AutomationProperties.Name="Playlist"/>
+
+                <Button x:Name="LookUpButton" Grid.Column="2" Content="Look up" Margin="8,0,0,0"
                         Padding="14,7" Click="OnLookUp" IsDefault="True"
                         AutomationProperties.Name="Look up this link"/>
             </Grid>
@@ -56,12 +66,70 @@
                 </StackPanel>
             </Border>
 
-            <!-- Name -->
-            <TextBlock Text="Save as" Style="{StaticResource FieldLabel}" Margin="0,14,0,5"/>
-            <TextBox x:Name="NameBox" Padding="9,7" TextChanged="OnNameChanged"
-                     AutomationProperties.Name="Name to save it as"/>
-            <TextBlock x:Name="NameHint" Style="{StaticResource MutedText}" Margin="2,4,0,0"
-                       TextWrapping="Wrap"/>
+            <!-- Playlist: every track, named before any of it downloads -->
+            <StackPanel x:Name="PlaylistPanel" Visibility="Collapsed" Margin="0,14,0,0">
+                <Grid>
+                    <TextBlock x:Name="PlaylistTitle" Style="{StaticResource FieldLabel}" Margin="0"/>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Content="All" Padding="10,3" FontSize="11.5"
+                                Style="{StaticResource GhostButton}" Click="OnSelectAll"
+                                AutomationProperties.Name="Include every track"/>
+                        <Button Content="None" Padding="10,3" Margin="6,0,0,0" FontSize="11.5"
+                                Style="{StaticResource GhostButton}" Click="OnSelectNone"
+                                AutomationProperties.Name="Include no tracks"/>
+                    </StackPanel>
+                </Grid>
+
+                <Border Margin="0,6,0,0" Padding="4" CornerRadius="9"
+                        Background="{DynamicResource SurfaceAltBrush}"
+                        BorderBrush="{DynamicResource BorderBrushSoft}" BorderThickness="1">
+                    <ScrollViewer MaxHeight="260" VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled">
+                        <ItemsControl x:Name="TrackList" AutomationProperties.Name="Tracks">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="4,3">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <CheckBox IsChecked="{Binding Include}" VerticalAlignment="Center"
+                                                  AutomationProperties.Name="Include this track"/>
+
+                                        <TextBlock Grid.Column="1" Text="{Binding Number}" Width="26"
+                                                   TextAlignment="Right" VerticalAlignment="Center"
+                                                   Margin="6,0,8,0" Style="{StaticResource MutedText}"/>
+
+                                        <TextBox Grid.Column="2" Padding="7,4" FontSize="12.5"
+                                                 Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
+                                                 IsEnabled="{Binding Include}"
+                                                 AutomationProperties.Name="Track name"/>
+
+                                        <TextBlock Grid.Column="3" Text="{Binding DurationText}"
+                                                   VerticalAlignment="Center" Margin="8,0,4,0"
+                                                   Style="{StaticResource MutedText}"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Border>
+
+                <TextBlock x:Name="PlaylistHint" Style="{StaticResource MutedText}"
+                           Margin="2,6,0,0" TextWrapping="Wrap"/>
+            </StackPanel>
+
+            <!-- Name, for a single video -->
+            <StackPanel x:Name="SingleNamePanel">
+                <TextBlock Text="Save as" Style="{StaticResource FieldLabel}" Margin="0,14,0,5"/>
+                <TextBox x:Name="NameBox" Padding="9,7" TextChanged="OnNameChanged"
+                         AutomationProperties.Name="Name to save it as"/>
+                <TextBlock x:Name="NameHint" Style="{StaticResource MutedText}" Margin="2,4,0,0"
+                           TextWrapping="Wrap"/>
+            </StackPanel>
 
             <!-- Where -->
             <TextBlock Text="Into" Style="{StaticResource FieldLabel}" Margin="0,14,0,5"/>

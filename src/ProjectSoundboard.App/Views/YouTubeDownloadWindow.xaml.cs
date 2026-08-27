@@ -1,4 +1,7 @@
+using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
 using ProjectSoundboard.App.Services;
@@ -6,20 +9,53 @@ using ProjectSoundboard.Core.Storage;
 
 namespace ProjectSoundboard.App.Views;
 
+/// <summary>One track of a playlist, as the list shows it: included or not, and named.</summary>
+public sealed class PlaylistTrack : INotifyPropertyChanged
+{
+    private bool _include = true;
+    private string _name = string.Empty;
+
+    public required VideoInfo Video { get; init; }
+    public required int Number { get; init; }
+
+    public bool Include
+    {
+        get => _include;
+        set { if (_include != value) { _include = value; Changed(); } }
+    }
+
+    public string Name
+    {
+        get => _name;
+        set { if (_name != value) { _name = value; Changed(); } }
+    }
+
+    public string DurationText => Video.Duration > TimeSpan.Zero ? Video.DurationText : "—";
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    private void Changed([CallerMemberName] string? name = null) =>
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+}
+
 /// <summary>
 /// Paste a link, confirm the name, choose which library folder it lands in.
 ///
 /// The title is looked up before anything is downloaded so it can be offered as the name.
 /// Renaming afterwards would work too, but naming it up front is the moment somebody
-/// actually knows what they want it called.
+/// actually knows what they want it called — and for a playlist, naming twenty tracks
+/// afterwards is a chore nobody would do.
 /// </summary>
 public partial class YouTubeDownloadWindow : Window
 {
     private readonly AppServices _services;
     private readonly YtDlpTool _tool = new();
+    private readonly ObservableCollection<PlaylistTrack> _tracks = new();
+    private readonly List<string> _downloaded = new();
 
     private CancellationTokenSource? _work;
     private VideoInfo? _found;
+    private PlaylistInfo? _playlist;
     private bool _nameEdited;
     private bool _busy;
 
@@ -28,6 +64,7 @@ public partial class YouTubeDownloadWindow : Window
         InitializeComponent();
 
         _services = services;
+        TrackList.ItemsSource = _tracks;
 
         FillFolders(suggestedFolder);
         RefreshToolState();
@@ -39,8 +76,11 @@ public partial class YouTubeDownloadWindow : Window
         };
     }
 
-    /// <summary>The file that was downloaded, once the dialog closes with a result.</summary>
-    public string? DownloadedPath { get; private set; }
+    /// <summary>What was downloaded, once the dialog closes with a result.</summary>
+    public IReadOnlyList<string> DownloadedPaths => _downloaded;
+
+    /// <summary>Tracks that could not be fetched, so the caller can say so.</summary>
+    public int FailedCount { get; private set; }
 
     // -----------------------------------------------------------------------
 
@@ -52,9 +92,9 @@ public partial class YouTubeDownloadWindow : Window
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        // The folder being browsed may be a subfolder of a watched one rather than the
-        // watched folder itself, and that is where "this library" means to somebody looking
-        // at it. Offered first, and it is what the button defaults to.
+        // The folder being browsed may be a group's folder rather than a watched root, and
+        // that is where "this library" means to somebody looking at it. Offered first, and
+        // it is what the dialog defaults to.
         if (!string.IsNullOrWhiteSpace(suggested) &&
             !folders.Contains(suggested, StringComparer.OrdinalIgnoreCase))
         {
@@ -63,7 +103,8 @@ public partial class YouTubeDownloadWindow : Window
 
         foreach (var folder in folders) FolderBox.Items.Add(folder);
 
-        FolderBox.SelectedItem = suggested is not null && folders.Contains(suggested, StringComparer.OrdinalIgnoreCase)
+        FolderBox.SelectedItem = suggested is not null &&
+                                 folders.Contains(suggested, StringComparer.OrdinalIgnoreCase)
             ? folders.First(f => string.Equals(f, suggested, StringComparison.OrdinalIgnoreCase))
             : folders.FirstOrDefault();
 
@@ -110,10 +151,30 @@ public partial class YouTubeDownloadWindow : Window
 
     private void OnUrlChanged(object sender, TextChangedEventArgs e)
     {
+        ClearResults();
+
+        // A link that plainly carries a playlist offers the tick already on, rather than
+        // making somebody look it up, get one video, and work out why.
+        if (!_busy && YouTubeDownloader.LooksLikePlaylist(UrlBox.Text) && PlaylistCheck.IsChecked != true)
+        {
+            PlaylistCheck.IsChecked = true;
+        }
+    }
+
+    private void OnPlaylistToggled(object sender, RoutedEventArgs e) => ClearResults();
+
+    private void ClearResults()
+    {
         _found = null;
+        _playlist = null;
+        _tracks.Clear();
+
         FoundPanel.Visibility = Visibility.Collapsed;
-        DownloadButton.IsEnabled = false;
+        PlaylistPanel.Visibility = Visibility.Collapsed;
+        SingleNamePanel.Visibility = Visibility.Visible;
         ProblemText.Visibility = Visibility.Collapsed;
+        DownloadButton.IsEnabled = false;
+        DownloadButton.Content = "Download";
     }
 
     private void OnNameChanged(object sender, TextChangedEventArgs e)
@@ -129,6 +190,30 @@ public partial class YouTubeDownloadWindow : Window
 
         DownloadButton.IsEnabled = _found is not null && !_busy && NameBox.Text.Trim().Length > 0;
     }
+
+    private void OnSelectAll(object sender, RoutedEventArgs e) => SetAll(true);
+
+    private void OnSelectNone(object sender, RoutedEventArgs e) => SetAll(false);
+
+    private void SetAll(bool include)
+    {
+        foreach (var track in _tracks) track.Include = include;
+        RefreshPlaylistCount();
+    }
+
+    private void RefreshPlaylistCount()
+    {
+        var chosen = _tracks.Count(t => t.Include);
+
+        PlaylistHint.Text = chosen == _tracks.Count
+            ? $"{_tracks.Count} track{(_tracks.Count == 1 ? "" : "s")}. Rename any of them before downloading."
+            : $"{chosen} of {_tracks.Count} chosen.";
+
+        DownloadButton.Content = chosen > 0 ? $"Download {chosen}" : "Download";
+        DownloadButton.IsEnabled = chosen > 0 && !_busy;
+    }
+
+    // -----------------------------------------------------------------------
 
     private async void OnLookUp(object sender, RoutedEventArgs e) => await LookUpAsync();
 
@@ -147,40 +232,22 @@ public partial class YouTubeDownloadWindow : Window
             return;
         }
 
-        Busy(true, "Looking it up…");
+        var wantsPlaylist = PlaylistCheck.IsChecked == true;
+        Busy(true, wantsPlaylist ? "Reading the playlist…" : "Looking it up…");
 
         try
         {
             _work = new CancellationTokenSource();
-
             var downloader = new YouTubeDownloader(path);
-            var info = await downloader.ProbeAsync(url, _work.Token);
 
-            if (info is null)
+            if (wantsPlaylist)
             {
-                Problem(downloader.LastError ?? "Could not read that link.");
-                return;
+                await LookUpPlaylistAsync(downloader, url);
             }
-
-            _found = info;
-
-            FoundTitle.Text = info.Title;
-            FoundDetail.Text = info.Uploader is null
-                ? info.DurationText
-                : $"{info.Uploader}  ·  {info.DurationText}";
-
-            FoundPanel.Visibility = Visibility.Visible;
-
-            // The title is the obvious name, and almost always the right one.
-            if (!_nameEdited || NameBox.Text.Trim().Length == 0)
+            else
             {
-                NameBox.Text = YouTubeDownloader.SafeFileName(info.Title);
-                _nameEdited = false;
+                await LookUpSingleAsync(downloader, url);
             }
-
-            DownloadButton.IsEnabled = NameBox.Text.Trim().Length > 0;
-            NameBox.Focus();
-            NameBox.SelectAll();
         }
         catch (OperationCanceledException)
         {
@@ -192,9 +259,91 @@ public partial class YouTubeDownloadWindow : Window
         }
     }
 
+    private async Task LookUpSingleAsync(YouTubeDownloader downloader, string url)
+    {
+        var info = await downloader.ProbeAsync(url, _work!.Token);
+
+        if (info is null)
+        {
+            Problem(downloader.LastError ?? "Could not read that link.");
+            return;
+        }
+
+        _found = info;
+
+        FoundTitle.Text = info.Title;
+        FoundDetail.Text = info.Uploader is null
+            ? info.DurationText
+            : $"{info.Uploader}  ·  {info.DurationText}";
+
+        FoundPanel.Visibility = Visibility.Visible;
+        SingleNamePanel.Visibility = Visibility.Visible;
+        PlaylistPanel.Visibility = Visibility.Collapsed;
+
+        // The title is the obvious name, and almost always the right one.
+        if (!_nameEdited || NameBox.Text.Trim().Length == 0)
+        {
+            NameBox.Text = YouTubeDownloader.SafeFileName(info.Title);
+            _nameEdited = false;
+        }
+
+        DownloadButton.IsEnabled = NameBox.Text.Trim().Length > 0;
+        NameBox.Focus();
+        NameBox.SelectAll();
+    }
+
+    private async Task LookUpPlaylistAsync(YouTubeDownloader downloader, string url)
+    {
+        var list = await downloader.ProbePlaylistAsync(url, _work!.Token);
+
+        if (list is null)
+        {
+            Problem(downloader.LastError ?? "Could not read that playlist.");
+            return;
+        }
+
+        _playlist = list;
+        _tracks.Clear();
+
+        var number = 1;
+        foreach (var item in list.Items)
+        {
+            var track = new PlaylistTrack
+            {
+                Video = item,
+                Number = number++,
+                Name = YouTubeDownloader.SafeFileName(item.Title)
+            };
+
+            // Re-count as tracks are ticked and unticked, so the button always says how
+            // many are actually going to be fetched.
+            track.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(PlaylistTrack.Include)) RefreshPlaylistCount();
+            };
+
+            _tracks.Add(track);
+        }
+
+        PlaylistTitle.Text = list.Title;
+
+        FoundPanel.Visibility = Visibility.Collapsed;
+        SingleNamePanel.Visibility = Visibility.Collapsed;
+        PlaylistPanel.Visibility = Visibility.Visible;
+
+        RefreshPlaylistCount();
+
+        if (list.Items.Count >= YouTubeDownloader.MaxPlaylistItems)
+        {
+            PlaylistHint.Text += $" Only the first {YouTubeDownloader.MaxPlaylistItems} are listed.";
+        }
+    }
+
+    // -----------------------------------------------------------------------
+
     private async void OnDownload(object sender, RoutedEventArgs e)
     {
-        if (_busy || _found is null) return;
+        if (_busy) return;
 
         var path = YtDlpTool.Locate();
         if (path is null) { RefreshToolState(); return; }
@@ -212,34 +361,22 @@ public partial class YouTubeDownloadWindow : Window
         try
         {
             _work = new CancellationTokenSource();
-
             var downloader = new YouTubeDownloader(path);
 
-            var progress = new Progress<DownloadProgress>(p =>
+            if (_playlist is not null)
             {
-                Progress.Value = p.Percent;
-                ProgressText.Text = p.Stage == "Downloading…"
-                    ? $"{p.Stage}  {p.Percent:F0}%"
-                    : p.Stage;
-            });
-
-            var file = await downloader.DownloadMp3Async(
-                _found.Url, folder, NameBox.Text, 192, progress, _work.Token);
-
-            if (file is null)
-            {
-                Problem(downloader.LastError ?? "The download failed.");
-                return;
+                await DownloadPlaylistAsync(downloader, folder);
             }
-
-            DownloadedPath = file;
-            Log.Info($"Downloaded '{Path.GetFileName(file)}' into {folder}.");
-
-            DialogResult = true;
+            else if (_found is not null)
+            {
+                await DownloadSingleAsync(downloader, folder);
+            }
         }
         catch (OperationCanceledException)
         {
-            Problem("Cancelled.");
+            // Whatever finished before it was stopped is still worth keeping.
+            if (_downloaded.Count > 0) DialogResult = true;
+            else Problem("Cancelled.");
         }
         catch (Exception ex)
         {
@@ -250,6 +387,87 @@ public partial class YouTubeDownloadWindow : Window
             Busy(false);
         }
     }
+
+    private async Task DownloadSingleAsync(YouTubeDownloader downloader, string folder)
+    {
+        var progress = new Progress<DownloadProgress>(p =>
+        {
+            Progress.Value = p.Percent;
+            ProgressText.Text = p.Stage == "Downloading…" ? $"{p.Stage}  {p.Percent:F0}%" : p.Stage;
+        });
+
+        var file = await downloader.DownloadMp3Async(
+            _found!.Url, folder, NameBox.Text, 192, progress, _work!.Token);
+
+        if (file is null)
+        {
+            Problem(downloader.LastError ?? "The download failed.");
+            return;
+        }
+
+        _downloaded.Add(file);
+        Log.Info($"Downloaded '{Path.GetFileName(file)}' into {folder}.");
+
+        DialogResult = true;
+    }
+
+    /// <summary>
+    /// One at a time, on purpose. Several at once saturates the connection and makes all of
+    /// them slow, and it makes the progress meaningless — which of five is this?
+    /// </summary>
+    private async Task DownloadPlaylistAsync(YouTubeDownloader downloader, string folder)
+    {
+        var chosen = _tracks.Where(t => t.Include).ToList();
+        if (chosen.Count == 0) return;
+
+        var failures = new List<string>();
+
+        for (var i = 0; i < chosen.Count; i++)
+        {
+            _work!.Token.ThrowIfCancellationRequested();
+
+            var track = chosen[i];
+            var index = i;
+
+            var progress = new Progress<DownloadProgress>(p =>
+            {
+                // The bar is the whole job; the text says which track it is on.
+                Progress.Value = (index + p.Percent / 100.0) / chosen.Count * 100.0;
+                ProgressText.Text = $"{index + 1} of {chosen.Count}  ·  {track.Name}  ·  {p.Stage}";
+            });
+
+            var name = track.Name.Trim().Length > 0 ? track.Name : track.Video.Title;
+
+            var file = await downloader.DownloadMp3Async(
+                track.Video.Url, folder, name, 192, progress, _work.Token);
+
+            if (file is null)
+            {
+                // One unavailable track does not stop the other nineteen.
+                failures.Add(track.Name);
+                Log.Warn($"Playlist track '{track.Name}' failed: {downloader.LastError}");
+                continue;
+            }
+
+            _downloaded.Add(file);
+            track.Include = false;   // shows what is done if this is stopped part way
+        }
+
+        FailedCount = failures.Count;
+        Log.Info($"Playlist: {_downloaded.Count} downloaded into {folder}, {failures.Count} failed.");
+
+        if (_downloaded.Count > 0)
+        {
+            DialogResult = true;
+            return;
+        }
+
+        Problem(failures.Count > 0
+            ? $"None of them could be fetched. The first said: {downloader.LastError}"
+            : "Nothing was downloaded.");
+    }
+
+    // -----------------------------------------------------------------------
 
     private async void OnGetTool(object sender, RoutedEventArgs e)
     {
@@ -305,20 +523,23 @@ public partial class YouTubeDownloadWindow : Window
         UrlBox.IsEnabled = !busy;
         NameBox.IsEnabled = !busy;
         FolderBox.IsEnabled = !busy;
+        PlaylistCheck.IsEnabled = !busy;
+        TrackList.IsEnabled = !busy;
         LookUpButton.IsEnabled = !busy && YtDlpTool.Locate() is not null;
         GetToolButton.IsEnabled = !busy;
-        DownloadButton.IsEnabled = !busy && _found is not null && NameBox.Text.Trim().Length > 0;
 
-        if (busy)
-        {
-            ProblemText.Visibility = Visibility.Collapsed;
+        DownloadButton.IsEnabled = !busy && (_playlist is not null
+            ? _tracks.Any(t => t.Include)
+            : _found is not null && NameBox.Text.Trim().Length > 0);
 
-            if (what is not null)
-            {
-                ProgressPanel.Visibility = Visibility.Visible;
-                ProgressText.Text = what;
-            }
-        }
+        if (!busy) return;
+
+        ProblemText.Visibility = Visibility.Collapsed;
+
+        if (what is null) return;
+
+        ProgressPanel.Visibility = Visibility.Visible;
+        ProgressText.Text = what;
     }
 
     private void Problem(string message)
@@ -337,7 +558,7 @@ public partial class YouTubeDownloadWindow : Window
             return;
         }
 
-        DialogResult = false;
+        DialogResult = _downloaded.Count > 0;
     }
 
     protected override void OnClosed(EventArgs e)

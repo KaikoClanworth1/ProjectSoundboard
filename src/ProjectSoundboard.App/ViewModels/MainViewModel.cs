@@ -1185,41 +1185,56 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             Owner = Application.Current?.MainWindow
         };
 
-        if (dialog.ShowDialog() != true || dialog.DownloadedPath is not { } file) return;
+        if (dialog.ShowDialog() != true || dialog.DownloadedPaths.Count == 0) return;
 
+        var files = dialog.DownloadedPaths;
         var groupId = SelectedNode is { Kind: LibraryNodeKind.Group } node ? node.GroupId : null;
-        var added = _services.Library.AddFiles(new[] { file }, groupId);
 
-        // The folder watcher may have got there first, in which case the file is already
-        // indexed — with whatever group the scan worked out from its folder, which for a
-        // group nested inside another is the wrong one. Put it where it was asked for.
-        var entry = added.Count > 0 ? added[0] : _services.Library.GetByPath(file);
+        var added = _services.Library.AddFiles(files, groupId);
 
-        if (entry is not null && groupId is not null && entry.GroupId != groupId)
+        // The folder watcher may have got to some of them first, in which case they are
+        // already indexed — with whatever group the scan worked out from the folder, which
+        // for a group nested inside another is the wrong one. Put them where they were asked
+        // for, whichever noticed them.
+        var entries = files
+            .Select(f => _services.Library.GetByPath(f))
+            .Where(e => e is not null)
+            .Select(e => e!)
+            .ToList();
+
+        if (groupId is not null)
         {
-            _services.Library.AssignGroup(new[] { entry }, groupId);
+            var misplaced = entries.Where(e => e.GroupId != groupId).ToList();
+            if (misplaced.Count > 0) _services.Library.AssignGroup(misplaced, groupId);
         }
 
         BuildTree();
         RefreshResults();
 
-        var name = Path.GetFileNameWithoutExtension(file);
-
-        if (entry is not null)
+        if (entries.Count == 0)
         {
-            SelectedSound = FindViewModel(entry.Id);
+            // On disk but not indexed: they landed outside every watched folder.
+            StatusMessage = $"Downloaded {files.Count} file(s), but that folder is not in your " +
+                            "library so they have not been added. Add it in Settings to see them.";
+            return;
+        }
 
-            var group = groupId is null ? null : _services.Library.GetGroup(groupId)?.Name;
-            StatusMessage = group is null
-                ? $"Downloaded '{name}'."
-                : $"Downloaded '{name}' into '{group}'.";
-        }
-        else
-        {
-            // On disk but not indexed: it landed outside every watched folder.
-            StatusMessage = $"Downloaded '{name}', but it is not in a library folder so it " +
-                            "has not been added. Add that folder in Settings to see it.";
-        }
+        SelectedSound = FindViewModel(entries[0].Id);
+
+        var group = groupId is null ? null : _services.Library.GetGroup(groupId)?.Name;
+        var what = entries.Count == 1
+            ? $"'{Path.GetFileNameWithoutExtension(files[0])}'"
+            : $"{entries.Count} tracks";
+
+        StatusMessage = group is null
+            ? $"Downloaded {what}."
+            : $"Downloaded {what} into '{group}'.";
+
+        if (dialog.FailedCount > 0)
+            StatusMessage += $" {dialog.FailedCount} could not be fetched — see the log.";
+
+        Log.Info($"Added {added.Count} new and {entries.Count - added.Count} already-indexed " +
+                 $"file(s) from the downloader.");
     }
 
     /// <summary>

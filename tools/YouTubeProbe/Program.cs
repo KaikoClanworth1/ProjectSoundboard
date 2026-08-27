@@ -17,6 +17,7 @@ internal static class Program
     private static int Main(string[] args)
     {
         if (args.Length > 0 && args[0] == "--live") return Live(args.Skip(1).ToArray()).GetAwaiter().GetResult();
+        if (args.Length > 0 && args[0] == "--playlist") return ListPlaylist(args.Skip(1).ToArray()).GetAwaiter().GetResult();
 
         var failures = 0;
 
@@ -49,6 +50,19 @@ internal static class Program
         failures += Accepts("", false);
 
         Console.WriteLine();
+        Console.WriteLine("=== playlist links ===");
+
+        // Without the tick, a watch link carrying a list means the video. With it, the list.
+        failures += Playlist("https://www.youtube.com/watch?v=ABCDEFGHIJK&list=PL123", true,
+                             "https://www.youtube.com/playlist?list=PL123");
+
+        failures += Playlist("https://www.youtube.com/playlist?list=PL123", true,
+                             "https://www.youtube.com/playlist?list=PL123");
+
+        failures += Playlist("https://www.youtube.com/watch?v=ABCDEFGHIJK", false,
+                             "https://www.youtube.com/watch?v=ABCDEFGHIJK");
+
+        Console.WriteLine();
         Console.WriteLine("=== titles into filenames ===");
 
         failures += Name("AC/DC - Back in Black", "ACDC - Back in Black");
@@ -64,6 +78,64 @@ internal static class Program
 
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "ALL PASS" : $"{failures} FAILED");
+        return failures == 0 ? 0 : 1;
+    }
+
+    /// <summary>
+    /// Reads a real playlist and lists what is in it, without downloading any of it. This is
+    /// the half the dialog depends on: the list has to be there before anything can be named.
+    /// </summary>
+    private static async Task<int> ListPlaylist(string[] args)
+    {
+        // A channel's videos tab is a playlist as far as yt-dlp is concerned, and this one
+        // has a single nineteen second video on it — small enough to be a decent test.
+        var url = args.FirstOrDefault() ?? "https://www.youtube.com/@jawed/videos";
+
+        var tool = YtDlpTool.Locate();
+        if (tool is null)
+        {
+            var fetcher = new YtDlpTool();
+            tool = await fetcher.FetchAsync(new Progress<string>(s => Console.WriteLine($"  {s}")));
+
+            if (tool is null)
+            {
+                Console.WriteLine($"FAIL - could not fetch yt-dlp: {fetcher.LastError}");
+                return 1;
+            }
+        }
+
+        Console.WriteLine($"reading playlist: {url}");
+        Console.WriteLine();
+
+        var downloader = new YouTubeDownloader(tool);
+        var list = await downloader.ProbePlaylistAsync(url);
+
+        if (list is null)
+        {
+            Console.WriteLine($"FAIL - {downloader.LastError}");
+            return 1;
+        }
+
+        Console.WriteLine($"  title  : {list.Title}");
+        Console.WriteLine($"  tracks : {list.Items.Count}");
+        Console.WriteLine();
+
+        var n = 1;
+        foreach (var item in list.Items.Take(10))
+        {
+            Console.WriteLine($"   {n++,3}. {Shorten(item.Title),-58} {item.DurationText,8}");
+        }
+
+        if (list.Items.Count > 10) Console.WriteLine($"   … and {list.Items.Count - 10} more");
+
+        var failures = 0;
+
+        if (list.Items.Count == 0) { Console.WriteLine("FAIL - no tracks listed."); failures++; }
+        if (list.Items.Any(i => string.IsNullOrWhiteSpace(i.Title))) { Console.WriteLine("FAIL - a track has no title."); failures++; }
+        if (list.Items.Any(i => !i.Url.Contains("watch?v=", StringComparison.Ordinal))) { Console.WriteLine("FAIL - a track has no usable link."); failures++; }
+
+        Console.WriteLine();
+        Console.WriteLine(failures == 0 ? "PLAYLIST PASS" : $"{failures} FAILED");
         return failures == 0 ? 0 : 1;
     }
 
@@ -162,6 +234,18 @@ internal static class Program
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "LIVE PASS" : $"{failures} FAILED");
         return failures == 0 ? 0 : 1;
+    }
+
+    private static int Playlist(string input, bool expectedIsPlaylist, string expectedUrl)
+    {
+        var isPlaylist = YouTubeDownloader.LooksLikePlaylist(input);
+        var url = YouTubeDownloader.AsPlaylistUrl(input);
+        var ok = isPlaylist == expectedIsPlaylist && url == expectedUrl;
+
+        Console.WriteLine($"  {(ok ? "PASS" : "FAIL")}  carries a list={isPlaylist,-5}  {Shorten(input)}");
+        if (!ok) Console.WriteLine($"        expected list={expectedIsPlaylist} url={expectedUrl}\n        got      url={url}");
+
+        return ok ? 0 : 1;
     }
 
     private static int Link(string input, string expected)
