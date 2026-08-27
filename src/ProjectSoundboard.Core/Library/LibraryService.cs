@@ -372,7 +372,7 @@ public sealed class LibraryService : IDisposable
             var byName = _data.Groups
                 .Where(g => g.ParentId is null)
                 .GroupBy(g => g.Name, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(g => g.Key, g => g.First().Id, StringComparer.OrdinalIgnoreCase);
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
 
             foreach (var (path, folder) in found)
             {
@@ -381,15 +381,32 @@ public sealed class LibraryService : IDisposable
                 var name = FirstLevelFolderName(path, folder.Path);
                 if (name is null) continue;
 
-                if (!byName.TryGetValue(name, out var id))
+                var backing = Path.Combine(folder.Path, name);
+
+                if (!byName.TryGetValue(name, out var group))
                 {
-                    var group = new SoundGroup { Name = name, SortOrder = _data.Groups.Count };
+                    group = new SoundGroup
+                    {
+                        Name = name,
+                        SortOrder = _data.Groups.Count,
+                        FolderPath = backing
+                    };
+
                     _data.Groups.Add(group);
-                    byName[name] = id = group.Id;
+                    byName[name] = group;
+                    _dirty = true;
+                }
+                else if (string.IsNullOrWhiteSpace(group.FolderPath))
+                {
+                    // Filled in for groups made before groups had folders. This is the one
+                    // that matters in practice: a library already organised into subfolders
+                    // has all its groups from before, and without this none of them would
+                    // have anywhere for a download to go.
+                    group.FolderPath = backing;
                     _dirty = true;
                 }
 
-                result[path] = id;
+                result[path] = group.Id;
             }
         }
 
@@ -896,18 +913,71 @@ public sealed class LibraryService : IDisposable
 
     // ---- groups -----------------------------------------------------------
 
-    public SoundGroup CreateGroup(string name, string? parentId = null)
+    /// <summary>
+    /// Make a group. When <paramref name="insideFolder"/> is given, a folder of the same name
+    /// is created inside it and the group is tied to it, so anything added to the group has
+    /// somewhere obvious to go.
+    /// </summary>
+    public SoundGroup CreateGroup(string name, string? parentId = null, string? insideFolder = null)
     {
         var group = new SoundGroup { Name = name, ParentId = parentId };
+
+        if (!string.IsNullOrWhiteSpace(insideFolder))
+        {
+            var folder = Path.Combine(insideFolder, MakeSafeFileName(name));
+
+            try
+            {
+                // An existing folder of that name is used as it is rather than refused:
+                // making a group for a folder already there is a perfectly ordinary thing
+                // to want, and is exactly what the subfolder grouping does.
+                Directory.CreateDirectory(folder);
+                group.FolderPath = folder;
+
+                Log.Info($"Group '{name}' is backed by {folder}.");
+            }
+            catch (Exception ex)
+            {
+                // A group without a folder still works; only the destination is guessed.
+                Log.Warn($"Could not make a folder for the group '{name}': {ex.Message}");
+            }
+        }
+
         lock (_gate)
         {
             group.SortOrder = _data.Groups.Count;
             _data.Groups.Add(group);
             _dirty = true;
         }
+
         Save();
         LibraryChanged?.Invoke(this, EventArgs.Empty);
         return group;
+    }
+
+    /// <summary>
+    /// The folder a group is backed by, walking up to its parents when it has none of its
+    /// own — a group made before folders existed still sits under one.
+    /// </summary>
+    public string? FolderForGroup(string? groupId)
+    {
+        if (groupId is null) return null;
+
+        lock (_gate)
+        {
+            // Bounded rather than while(true): a corrupt file could describe a group that is
+            // its own ancestor, and this must not become an infinite loop.
+            for (var depth = 0; depth < 32 && groupId is not null; depth++)
+            {
+                var group = _data.Groups.FirstOrDefault(g => g.Id == groupId);
+                if (group is null) return null;
+
+                if (!string.IsNullOrWhiteSpace(group.FolderPath)) return group.FolderPath;
+                groupId = group.ParentId;
+            }
+        }
+
+        return null;
     }
 
     public void RenameGroup(SoundGroup group, string name)

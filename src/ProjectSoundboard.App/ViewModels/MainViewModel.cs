@@ -1134,11 +1134,17 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// </summary>
     private string? SuggestedDownloadFolder()
     {
-        var fromSelection = Folder(SelectedSound?.Entry.FilePath);
-        if (fromSelection is not null) return fromSelection;
-
         if (SelectedNode is { Kind: LibraryNodeKind.Group, GroupId: { } groupId })
         {
+            // The folder the group is actually tied to, first and above everything else.
+            // Having picked a group, that is where its things go — and this is the only
+            // answer that works for a group with nothing in it yet, which used to fall all
+            // the way through to the main library.
+            var backing = _services.Library.FolderForGroup(groupId);
+            if (backing is not null) return backing;
+
+            // A group from before groups had folders: fall back to wherever most of its
+            // sounds already live.
             var tree = _services.Library.GetGroupTree(groupId);
 
             var common = _services.Library.Sounds
@@ -1152,10 +1158,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             if (common is not null) return common;
         }
 
-        var folders = _services.Settings.Settings.Library.Folders;
-
-        return folders.FirstOrDefault(f => f.IsMainLibrary && !string.IsNullOrWhiteSpace(f.Path))?.Path
-               ?? folders.FirstOrDefault(f => !string.IsNullOrWhiteSpace(f.Path))?.Path;
+        return Folder(SelectedSound?.Entry.FilePath) ?? MainLibraryFolder();
 
         static string? Folder(string? path)
         {
@@ -1187,15 +1190,29 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         var groupId = SelectedNode is { Kind: LibraryNodeKind.Group } node ? node.GroupId : null;
         var added = _services.Library.AddFiles(new[] { file }, groupId);
 
+        // The folder watcher may have got there first, in which case the file is already
+        // indexed — with whatever group the scan worked out from its folder, which for a
+        // group nested inside another is the wrong one. Put it where it was asked for.
+        var entry = added.Count > 0 ? added[0] : _services.Library.GetByPath(file);
+
+        if (entry is not null && groupId is not null && entry.GroupId != groupId)
+        {
+            _services.Library.AssignGroup(new[] { entry }, groupId);
+        }
+
         BuildTree();
         RefreshResults();
 
         var name = Path.GetFileNameWithoutExtension(file);
 
-        if (added.Count > 0)
+        if (entry is not null)
         {
-            SelectedSound = FindViewModel(added[0].Id);
-            StatusMessage = $"Downloaded '{name}'.";
+            SelectedSound = FindViewModel(entry.Id);
+
+            var group = groupId is null ? null : _services.Library.GetGroup(groupId)?.Name;
+            StatusMessage = group is null
+                ? $"Downloaded '{name}'."
+                : $"Downloaded '{name}' into '{group}'.";
         }
         else
         {
@@ -1221,10 +1238,42 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private void CreateGroup()
     {
         var parentId = SelectedNode?.Kind == LibraryNodeKind.Group ? SelectedNode.GroupId : null;
-        var group = _services.Library.CreateGroup("New group", parentId);
+
+        // A folder is made for the group, so the name has to be settled up front rather than
+        // renamed afterwards — a folder called "New group" would be no use to anybody.
+        var parentFolder = _services.Library.FolderForGroup(parentId) ?? MainLibraryFolder();
+
+        var where = parentFolder is null
+            ? "It will not have a folder of its own."
+            : $"A folder will be made for it in {parentFolder}.";
+
+        var prompt = new Views.TextPromptWindow(
+            parentId is null ? "New group" : "New group inside this one",
+            $"Name. {where}",
+            "New group")
+        {
+            Owner = Application.Current?.MainWindow
+        };
+
+        if (prompt.ShowDialog() != true || string.IsNullOrWhiteSpace(prompt.Value)) return;
+
+        var group = _services.Library.CreateGroup(prompt.Value.Trim(), parentId, parentFolder);
 
         BuildTree();
         SelectedNode = FindNode(Nodes, n => n.GroupId == group.Id);
+
+        StatusMessage = group.FolderPath is null
+            ? $"Group '{group.Name}' created."
+            : $"Group '{group.Name}' created, using {group.FolderPath}.";
+    }
+
+    /// <summary>The main library folder, or the first one configured.</summary>
+    private string? MainLibraryFolder()
+    {
+        var folders = _services.Settings.Settings.Library.Folders;
+
+        return folders.FirstOrDefault(f => f.IsMainLibrary && !string.IsNullOrWhiteSpace(f.Path))?.Path
+               ?? folders.FirstOrDefault(f => !string.IsNullOrWhiteSpace(f.Path))?.Path;
     }
 
     [RelayCommand]
