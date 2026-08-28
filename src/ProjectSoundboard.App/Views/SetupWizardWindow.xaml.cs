@@ -41,7 +41,7 @@ public partial class SetupWizardWindow : Window
         {
             _viewModel.Commit();
             AppServices.Current.Library.StartWatching();
-            DialogResult = true;
+            this.Answer(true);
             return;
         }
 
@@ -61,7 +61,7 @@ public partial class SetupWizardWindow : Window
         if (confirm != MessageBoxResult.OK) return;
 
         AppServices.Current.Engine.StopAll(0);
-        DialogResult = false;
+        this.Answer(false);
     }
 
     private void OnHeaderDrag(object sender, MouseButtonEventArgs e)

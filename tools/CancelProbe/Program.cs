@@ -20,6 +20,7 @@ internal static class Program
 
         failures += DoesCancelCloseTheWindow(handled: false);
         failures += DoesCancelCloseTheWindow(handled: true);
+        failures += AnsweringTwice();
         failures += SettingDialogResultAfterClose();
         failures += UsingADisposedTokenSource();
 
@@ -83,6 +84,44 @@ internal static class Program
 
         Console.WriteLine("        the window goes even though the handler meant to keep it open.");
         return handled ? 1 : 0;
+    }
+
+    /// <summary>
+    /// A Cancel button whose own handler answers the dialog — which is what "Later" and
+    /// "Skip this version" do on the update window, and what every ordinary Cancel does.
+    ///
+    /// The handler closes the window by setting the result. IsCancel then wants to set the
+    /// result too, on a window that has just gone, and there is nowhere for that to be
+    /// caught: it comes out of a click handler and ends the app.
+    /// </summary>
+    private static int AnsweringTwice()
+    {
+        Exception? escaped = null;
+
+        var window = new Window { Width = 200, Height = 100, ShowInTaskbar = false, Left = -2000 };
+
+        window.Loaded += (_, _) => window.Dispatcher.BeginInvoke(new Action(() =>
+        {
+            // The first click answers the dialog, which closes it.
+            window.DialogResult = false;
+
+            // The second one arrives a moment later, at a window that has gone. This is an
+            // impatient double-click on Later, and it is the whole of the crash.
+            try { window.DialogResult = false; }
+            catch (Exception ex) { escaped = ex; }
+
+            if (window.IsVisible) window.Close();
+        }));
+
+        window.ShowDialog();
+
+        Console.WriteLine($"  Answering a dialog a second time           -> " +
+                          $"{(escaped is null ? "no exception" : escaped.GetType().Name)}");
+
+        if (escaped is null) return 0;
+
+        Console.WriteLine($"        \"{escaped.Message}\"");
+        return 1;
     }
 
     /// <summary>

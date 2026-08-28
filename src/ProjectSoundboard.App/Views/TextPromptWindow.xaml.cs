@@ -22,7 +22,7 @@ public partial class TextPromptWindow : Window
 
     public string Value => Input.Text;
 
-    private void OnAccept(object sender, RoutedEventArgs e) => DialogResult = true;
+    private void OnAccept(object sender, RoutedEventArgs e) => this.Answer(true);
 
-    private void OnCancel(object sender, RoutedEventArgs e) => DialogResult = false;
+    private void OnCancel(object sender, RoutedEventArgs e) => this.Answer(false);
 }

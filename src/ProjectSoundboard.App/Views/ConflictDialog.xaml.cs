@@ -29,10 +29,10 @@ public partial class ConflictDialog : Window
     private void Choose(ConflictAction action)
     {
         Action = action;
-        DialogResult = true;
+        this.Answer(true);
     }
 
-    private void OnCancel(object sender, RoutedEventArgs e) => DialogResult = false;
+    private void OnCancel(object sender, RoutedEventArgs e) => this.Answer(false);
 
     private static string FormatSize(long bytes)
     {

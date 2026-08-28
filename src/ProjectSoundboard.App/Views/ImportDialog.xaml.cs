@@ -55,9 +55,9 @@ public partial class ImportDialog : Window
     public bool AutoTagFromFolder => AutoTag.IsChecked == true;
     public bool DetectDuplicateFiles => DetectDuplicates.IsChecked == true;
 
-    private void OnConfirm(object sender, RoutedEventArgs e) => DialogResult = true;
+    private void OnConfirm(object sender, RoutedEventArgs e) => this.Answer(true);
 
-    private void OnCancel(object sender, RoutedEventArgs e) => DialogResult = false;
+    private void OnCancel(object sender, RoutedEventArgs e) => this.Answer(false);
 
     private static string FormatSize(long bytes)
     {

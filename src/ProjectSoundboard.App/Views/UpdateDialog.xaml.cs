@@ -74,7 +74,7 @@ public partial class UpdateDialog : Window
             }
 
             // The swap script is waiting for this process to exit before it copies anything.
-            DialogResult = true;
+            this.Answer(true);
             Application.Current.Shutdown();
         }
         catch (OperationCanceledException)
@@ -105,7 +105,7 @@ public partial class UpdateDialog : Window
     private void OnSkip(object sender, RoutedEventArgs e)
     {
         _updates.SkipVersion(_update.Version);
-        DialogResult = false;
+        this.Answer(false);
     }
 
     private void OnLater(object sender, RoutedEventArgs e)
@@ -120,7 +120,7 @@ public partial class UpdateDialog : Window
         // Otherwise leave them alone about this version for a few hours, rather than
         // asking again the next time they open the app.
         _updates.SnoozeVersion(_update.Version);
-        DialogResult = false;
+        this.Answer(false);
     }
 
     private void OnOpenReleasePage(object sender, RoutedEventArgs e) =>

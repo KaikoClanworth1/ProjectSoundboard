@@ -197,9 +197,33 @@ public sealed class UpdateService
     {
         _settings.Settings.General.SnoozedUpdateVersion = version.ToString();
         _settings.Settings.General.SnoozedUntilUtc = DateTime.UtcNow + SnoozeDuration;
-        _settings.Save();
+
+        if (!Remember()) return;
 
         Log.Info($"Update {version} deferred for {SnoozeDuration.TotalHours:0} hours.");
+    }
+
+    /// <summary>
+    /// Write the settings out, and carry on if they cannot be written.
+    ///
+    /// This is called from the Later and Skip buttons, where the whole job is to remember a
+    /// preference and close a window. If the settings file is locked — by a backup tool, a
+    /// sync client, another copy of the app — the write throws, and thrown from a click
+    /// handler that ends the app. Being asked about the same update again is a far smaller
+    /// price than that.
+    /// </summary>
+    private bool Remember()
+    {
+        try
+        {
+            _settings.Save();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not save that update preference: {ex.Message}");
+            return false;
+        }
     }
 
     // ---- downloading ------------------------------------------------------
@@ -423,7 +447,9 @@ public sealed class UpdateService
     public void SkipVersion(Version version)
     {
         _settings.Settings.General.SkippedUpdateVersion = version.ToString();
-        _settings.Save();
+
+        if (!Remember()) return;
+
         Log.Info($"Update {version} skipped.");
     }
 

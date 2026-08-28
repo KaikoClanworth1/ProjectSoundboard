@@ -51,6 +51,14 @@ public static partial class TrackNaming
         var text = (title ?? string.Empty).Trim();
         if (text.Length == 0) return string.Empty;
 
+        // A Japanese title names the show in the first bracket, and often names it in English
+        // in there even when the rest is not: 「マッシュル-MASHLE-」. Worth looking for before
+        // the brackets are taken off and it goes with them.
+        if (Cjk().Matches(text).Count >= 4 && ShowFromJapanese(text) is { Length: > 0 } show)
+        {
+            return show;
+        }
+
         text = StripBrackets(text);
 
         // A title still carrying a lot of Japanese after the brackets have gone is one where
@@ -154,6 +162,51 @@ public static partial class TrackNaming
     /// English half the uploader put there for exactly this reason.
     /// </summary>
     private static string StripCjk(string text) => Cjk().Replace(text, " ");
+
+    /// <summary>
+    /// The show a Japanese theme belongs to, where the title spells it out in English.
+    ///
+    /// These titles are built as 「TV anime 『Show』 non-credit OP movie ｜ Artist「Song」」, and
+    /// the halves matter: everything before the bar is about the show, everything after it is
+    /// the artist and the song. Reading the first bracket of the first half finds "MASHLE"
+    /// inside 「マッシュル-MASHLE-」, where taking the whole title at once finds the artist and
+    /// the hashtag instead and calls the result "Creepy Nuts #BBBB".
+    ///
+    /// A bracket holding only a season — 『俺だけレベルアップな件 Season 2』 — names nothing,
+    /// and there is no English in that title to find. Nothing is returned and the title is
+    /// left alone rather than being called "Season 2 Opening".
+    /// </summary>
+    private static string ShowFromJapanese(string text)
+    {
+        // Everything after the first of these belongs to the artist and the song.
+        var cut = ArtistHalf().Match(text);
+        var head = cut.Success ? text[..cut.Index] : text;
+
+        // The first bracket only. The show is named first and everything bracketed after it
+        // is somebody else — the band in 【MAISONdes「…」】, or a note about the upload in
+        // [HD 720p]. Taking the best of all of them picks those up instead.
+        var bracket = BracketGroup().Match(head);
+        if (!bracket.Success) return string.Empty;
+
+        var inner = bracket.Groups["inner"].Value;
+        if (IsNoiseOnly(inner)) return string.Empty;
+
+        var latin = StripCjk(inner).Trim(' ', '-', '–', '—', '_', '・');
+        latin = Spaces().Replace(latin, " ").Trim();
+
+        if (latin.Length < 2) return string.Empty;
+
+        // "Season 2" is not the name of anything.
+        var bare = SeasonPart().Replace(latin, " ");
+        if (!bare.Any(char.IsLetter)) return string.Empty;
+
+        var name = Tidy(bare);
+        if (name.Length < 2) return string.Empty;
+
+        return ThemeMark().IsMatch(text) || JapaneseTheme().IsMatch(text)
+            ? $"{name} Opening"
+            : name;
+    }
 
     /// <summary>
     /// The English inside a Japanese title, where there is any.
@@ -395,6 +448,14 @@ public static partial class TrackNaming
     [GeneratedRegex(@"\s+[\w&'’.-]+\s+(?:Records|Recordings|Music\s+Group|Entertainment)\s*$",
                     RegexOptions.IgnoreCase)]
     private static partial Regex LabelTail();
+
+    // Where the show stops being the subject and the artist starts. The fullwidth bar is the
+    // usual one; a slash or a colon does the same job in titles that have no bar.
+    [GeneratedRegex("[｜│／：]|OPテーマ|EDテーマ")]
+    private static partial Regex ArtistHalf();
+
+    [GeneratedRegex("オープニング|ノンクレジット")]
+    private static partial Regex JapaneseTheme();
 
     [GeneratedRegex(@"\s{2,}")]
     private static partial Regex Spaces();

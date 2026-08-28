@@ -114,6 +114,18 @@ internal static class Program
 
         new("One Piece Opening 20 Hope by Namie Amuro",
             "One Piece Opening Hope"),
+
+        // The show is spelt out in English inside the first bracket, even though the rest of
+        // the title is not. Taking the whole title at once found the artist and the hashtag
+        // and called it "Creepy Nuts #BBBB".
+        new("TVアニメ「マッシュル-MASHLE-」第2期ノンクレジットOPムービー｜Creepy Nuts「Bling-Bang-Bang-Born」#BBBBダンス",
+            "MASHLE Opening"),
+
+        // The same shape, but the English name of the show is nowhere in the text — the only
+        // Latin in the first half is "Season 2", which names nothing.
+        new("『俺だけレベルアップな件 Season 2』ノンクレジットOPムービー｜LiSA「ReawakeR (feat. Felix of Stray Kids)」",
+            "Solo Leveling Season 2 Opening",
+            "\"Solo Leveling\" appears nowhere in the title; the only English in it is \"Season 2\""),
     ];
 
     /// <summary>

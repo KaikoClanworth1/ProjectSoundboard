@@ -55,7 +55,7 @@ public partial class HotkeyPromptWindow : Window
 
         if (virtualKey == 0x1B && Keyboard.Modifiers == ModifierKeys.None)
         {
-            DialogResult = false;
+            this.Answer(false);
             return;
         }
 
@@ -115,13 +115,13 @@ public partial class HotkeyPromptWindow : Window
     private static bool IsModifierKey(int vk) =>
         vk is 0x10 or 0x11 or 0x12 or 0xA0 or 0xA1 or 0xA2 or 0xA3 or 0xA4 or 0xA5 or 0x5B or 0x5C;
 
-    private void OnAccept(object sender, RoutedEventArgs e) => DialogResult = true;
+    private void OnAccept(object sender, RoutedEventArgs e) => this.Answer(true);
 
-    private void OnCancel(object sender, RoutedEventArgs e) => DialogResult = false;
+    private void OnCancel(object sender, RoutedEventArgs e) => this.Answer(false);
 
     private void OnClear(object sender, RoutedEventArgs e)
     {
         Cleared = true;
-        DialogResult = true;
+        this.Answer(true);
     }
 }

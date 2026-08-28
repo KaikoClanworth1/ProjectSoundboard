@@ -537,7 +537,7 @@ public partial class YouTubeDownloadWindow : Window
 
         try
         {
-            DialogResult = true;
+            this.Answer(true);
         }
         catch (InvalidOperationException ex)
         {
@@ -792,7 +792,7 @@ public partial class YouTubeDownloadWindow : Window
             return;
         }
 
-        DialogResult = _downloaded.Count > 0;
+        this.Answer(_downloaded.Count > 0);
     }
 
     protected override void OnClosed(EventArgs e)

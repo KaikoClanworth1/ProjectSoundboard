@@ -28,16 +28,16 @@ public partial class GroupPickerWindow : Window
         if (GroupList.SelectedItem is not SoundGroup group) return;
 
         SelectedGroupId = group.Id;
-        DialogResult = true;
+        this.Answer(true);
     }
 
     private void OnNoGroup(object sender, RoutedEventArgs e)
     {
         SelectedGroupId = null;
-        DialogResult = true;
+        this.Answer(true);
     }
 
     private void OnDoubleClick(object sender, MouseButtonEventArgs e) => OnAccept(sender, e);
 
-    private void OnCancel(object sender, RoutedEventArgs e) => DialogResult = false;
+    private void OnCancel(object sender, RoutedEventArgs e) => this.Answer(false);
 }

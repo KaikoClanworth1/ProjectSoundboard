@@ -47,13 +47,13 @@ public partial class SoundPickerWindow : Window
 
     private void OnDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        if (Selected is not null) DialogResult = true;
+        if (Selected is not null) this.Answer(true);
     }
 
     private void OnAccept(object sender, RoutedEventArgs e)
     {
-        if (Selected is not null) DialogResult = true;
+        if (Selected is not null) this.Answer(true);
     }
 
-    private void OnCancel(object sender, RoutedEventArgs e) => DialogResult = false;
+    private void OnCancel(object sender, RoutedEventArgs e) => this.Answer(false);
 }
