@@ -5,8 +5,14 @@ namespace ProjectSoundboard.Core.Models;
 /// is one click rather than four dropdowns. VRChat listening to a real microphone and
 /// Discord listening to the virtual cable is the case this exists for.
 ///
-/// Deliberately only routing and levels. Presets that quietly changed the EQ or the noise
-/// gate as well would be impossible to reason about — those stay where you set them.
+/// Routing and levels, for the outputs and for the microphone alike. Which microphone, whether
+/// it is passed through, how loud it is and whether it waits for a key are all part of how one
+/// app is wired and another is not, and leaving them out meant switching preset still left the
+/// microphone to be set by hand.
+///
+/// Not the EQ, the noise gate, or the rest of the processing. Those are how the voice is made
+/// to sound rather than where it goes, they are set once and left, and a preset that quietly
+/// changed them as well would be impossible to reason about.
 /// </summary>
 public sealed class DevicePreset
 {
@@ -31,6 +37,22 @@ public sealed class DevicePreset
     public string? MicInputDeviceId { get; set; }
     public bool MicPassthroughEnabled { get; set; }
     public bool MicMonitorEnabled { get; set; }
+
+    /// <summary>
+    /// How loud the microphone is in each setup. A headset held to the face in VR is not at
+    /// the same level as a desk microphone spoken across, so carrying the device without the
+    /// level got half the job done and left the other half to be set by hand every time.
+    /// </summary>
+    public float MicInputGain { get; set; } = 1.0f;
+
+    public float MicOutputGain { get; set; } = 1.0f;
+    public float MicMonitorVolume { get; set; } = 0.4f;
+
+    /// <summary>
+    /// Whether the microphone only opens while the key is held. One app doing the talking
+    /// over an open mic and another wanting push to talk is the same reason presets exist.
+    /// </summary>
+    public bool MicPushToTalkEnabled { get; set; }
 
     // ---- remembered names -------------------------------------------------
 

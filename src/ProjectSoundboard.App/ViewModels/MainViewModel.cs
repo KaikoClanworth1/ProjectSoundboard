@@ -55,6 +55,13 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _showProperties = services.Settings.Settings.Appearance.ShowPropertiesPanel;
         _masterVolume = services.Settings.Settings.Audio.MasterVolume;
 
+        // Assigning the field sets the slider without telling the audio anything, which leaves
+        // two separate paths reading the same saved number and no guarantee they agree. Any
+        // disagreement shows up as a slider sitting at the right place while the sound is at
+        // the wrong one, until it is nudged. Pushing it through the same call the slider makes
+        // means the volume being shown is the volume being applied, from the first second.
+        services.Engine.SetMasterVolume(_masterVolume);
+
         // Typing should feel instant but not re-filter 20,000 items on every keystroke.
         _searchDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(140) };
         _searchDebounce.Tick += (_, _) =>

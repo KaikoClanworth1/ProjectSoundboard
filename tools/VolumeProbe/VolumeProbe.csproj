@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>VolumeProbe</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ProjectSoundboard.Audio\ProjectSoundboard.Audio.csproj" />
+    <ProjectReference Include="..\..\src\ProjectSoundboard.Core\ProjectSoundboard.Core.csproj" />
+  </ItemGroup>
+
+</Project>

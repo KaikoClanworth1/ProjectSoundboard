@@ -129,8 +129,12 @@ public sealed class AppServices : IDisposable
     {
         Engine.ApplyAudioSettings();
 
-        if (Settings.Settings.Microphone.PassthroughEnabled)
-            Microphone.Start();
+        // Both ways round. Only ever starting it meant a preset could turn passthrough on but
+        // never off: switching to one with the microphone out of the mix left the microphone
+        // exactly where it was, still running on the device the last preset chose, and the
+        // only way to actually change it was by hand — which is the thing presets are for.
+        if (Settings.Settings.Microphone.PassthroughEnabled) Microphone.Start();
+        else Microphone.Stop();
     }
 
     public void Dispose()

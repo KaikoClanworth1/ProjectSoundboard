@@ -44,6 +44,10 @@ public sealed class PresetService
             MicInputDeviceId = mic.InputDeviceId,
             MicPassthroughEnabled = mic.PassthroughEnabled,
             MicMonitorEnabled = mic.MonitorEnabled,
+            MicInputGain = mic.InputGain,
+            MicOutputGain = mic.OutputGain,
+            MicMonitorVolume = mic.MonitorVolume,
+            MicPushToTalkEnabled = mic.PushToTalkEnabled,
 
             VirtualMicDeviceName = deviceName(audio.VirtualMicDeviceId),
             MonitorDeviceName = deviceName(audio.MonitorDeviceId),
@@ -92,6 +96,10 @@ public sealed class PresetService
         mic.InputDeviceId = preset.MicInputDeviceId;
         mic.PassthroughEnabled = preset.MicPassthroughEnabled;
         mic.MonitorEnabled = preset.MicMonitorEnabled;
+        mic.InputGain = preset.MicInputGain;
+        mic.OutputGain = preset.MicOutputGain;
+        mic.MonitorVolume = preset.MicMonitorVolume;
+        mic.PushToTalkEnabled = preset.MicPushToTalkEnabled;
 
         _settings.Settings.ActivePresetId = preset.Id;
         _settings.Save();
