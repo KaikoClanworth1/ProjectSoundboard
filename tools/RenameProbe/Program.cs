@@ -19,9 +19,10 @@ internal static class Program
     {
         var source = args.FirstOrDefault(a => !a.StartsWith("--"));
 
-        var samples = source is not null
+        // A file, or a folder of them. Three are needed for every check to run.
+        var samples = source is not null && File.Exists(source)
             ? new[] { source }
-            : Directory.EnumerateFiles(@"F:\Downloads", "*.mp3").Take(3).ToArray();
+            : Directory.EnumerateFiles(source ?? @"F:\Downloads", "*.mp3").Take(3).ToArray();
 
         if (samples.Length == 0)
         {

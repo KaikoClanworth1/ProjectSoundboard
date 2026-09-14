@@ -14,6 +14,13 @@ public sealed partial class AudioSettingsViewModel : ObservableObject
     private readonly AppServices _services;
     private bool _loading;
 
+    /// <summary>
+    /// How to change the outputs while taking whatever is playing along with them. Supplied
+    /// by the main window, which knows what is playing and what shuffle is following; left
+    /// unset, the outputs change and the sound stays where it was.
+    /// </summary>
+    public Action<Action>? Reroute { get; init; }
+
     public AudioSettingsViewModel(AppServices services)
     {
         _services = services;
@@ -108,12 +115,20 @@ public sealed partial class AudioSettingsViewModel : ObservableObject
         preset ??= SelectedPreset;
         if (preset is null) return;
 
-        _services.Presets.Apply(preset.Preset);
+        void Switch()
+        {
+            _services.Presets.Apply(preset.Preset);
 
-        // Bring the page and the audio stack in line with what was just written.
-        LoadFromSettings();
-        RefreshDevices();
-        _services.StartAudio();
+            // Bring the page and the audio stack in line with what was just written.
+            LoadFromSettings();
+            RefreshDevices();
+            _services.StartAudio();
+        }
+
+        // A song playing when the preset changes carries on through the new outputs, rather
+        // than through the old ones until somebody picks another.
+        if (Reroute is not null) Reroute(Switch);
+        else Switch();
 
         RefreshPresets();
         StatusText = $"'{preset.Name}' applied.";

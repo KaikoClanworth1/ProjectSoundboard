@@ -44,7 +44,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         _services = services;
 
-        Audio = new AudioSettingsViewModel(services);
+        Audio = new AudioSettingsViewModel(services) { Reroute = ReroutePlayback };
         Microphone = new MicrophoneViewModel(services);
         Hotkeys = new HotkeysViewModel(services);
         Settings = new SettingsViewModel(services, this);
@@ -658,6 +658,62 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void TogglePause() => _services.Engine.TogglePauseAll();
 
+    /// <summary>
+    /// What Space does: pause or resume whatever is playing, or play the selected sound when
+    /// nothing is. The same as a media player, which is what a finger on the space bar expects.
+    /// </summary>
+    public void PlayOrPause()
+    {
+        if (_services.Engine.IsAnythingPlaying)
+        {
+            TogglePause();
+            return;
+        }
+
+        if (SelectedSound is { } selected) Play(selected);
+    }
+
+    /// <summary>
+    /// Change the outputs — applying a preset — and bring whatever is playing along.
+    ///
+    /// Shuffle is following one particular playing sound, and moving that sound means stopping
+    /// it. Left attached, that stop reads as the song having ended and shuffle skips to the
+    /// next one, so shuffle is let go of first and handed the moved copy afterwards.
+    /// </summary>
+    public void ReroutePlayback(Action reconfigure)
+    {
+        var followed = _shuffleHandle;
+        DetachShuffleHandle();
+
+        var moved = _services.Engine.Reroute(reconfigure, id => _services.Library.GetById(id));
+
+        if (followed is not null)
+        {
+            var replacement = moved.FirstOrDefault(m => ReferenceEquals(m.From, followed))?.To;
+
+            if (replacement is not null)
+            {
+                _shuffleHandle = replacement;
+                replacement.Completed += OnShuffleSoundCompleted;
+            }
+            else if (moved.Count == 0 && !followed.IsCompleted)
+            {
+                // Nothing moved, so the sound shuffle was on is still the one playing.
+                _shuffleHandle = followed;
+                followed.Completed += OnShuffleSoundCompleted;
+            }
+            else if (ShuffleEnabled)
+            {
+                AdvanceShuffle();
+            }
+        }
+
+        SyncPlayingState();
+
+        if (moved.Count > 0)
+            StatusMessage = $"Moved {moved.Count} playing sound{(moved.Count == 1 ? "" : "s")} onto the new outputs.";
+    }
+
     [RelayCommand]
     private void ToggleSoundboardMute() => SoundboardMuted = !SoundboardMuted;
 
@@ -1181,6 +1237,42 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// into the group as well, so it appears where it was asked for rather than needing to
     /// be found and moved afterwards.
     /// </summary>
+    /// <summary>
+    /// Put each downloaded song's thumbnail on its tile, the same way an image picked by hand
+    /// goes on: copied into the artwork cache, so nothing depends on the file beside the song.
+    ///
+    /// That file is then removed. The picture is inside the song already and in the cache as
+    /// well, and a thumbnail next to every download would leave the music folder half pictures.
+    /// A song that did not make it into the library keeps its picture, since nothing else has.
+    /// </summary>
+    private int ApplyDownloadedArtwork(
+        IReadOnlyList<SoundEntry> entries, IReadOnlyDictionary<string, string> artwork)
+    {
+        if (artwork.Count == 0) return 0;
+
+        var byPath = artwork.ToDictionary(
+            a => System.IO.Path.GetFullPath(a.Key), a => a.Value, StringComparer.OrdinalIgnoreCase);
+
+        var applied = 0;
+
+        foreach (var entry in entries)
+        {
+            if (!byPath.TryGetValue(System.IO.Path.GetFullPath(entry.FilePath), out var picture)) continue;
+            if (!System.IO.File.Exists(picture)) continue;
+
+            _services.Images.Invalidate(entry.ImagePath);
+            if (Core.Library.ImageStore.Store(entry, picture) is null) continue;
+
+            applied++;
+
+            try { System.IO.File.Delete(picture); }
+            catch (Exception ex) { Log.Debug($"Could not remove the downloaded thumbnail: {ex.Message}"); }
+        }
+
+        if (applied > 0) _services.Library.NotifyChanged();
+        return applied;
+    }
+
     [RelayCommand]
     private void DownloadFromYouTube()
     {
@@ -1214,6 +1306,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             var misplaced = entries.Where(e => e.GroupId != groupId).ToList();
             if (misplaced.Count > 0) _services.Library.AssignGroup(misplaced, groupId);
         }
+
+        ApplyDownloadedArtwork(entries, dialog.DownloadedArtwork);
 
         BuildTree();
         RefreshResults();

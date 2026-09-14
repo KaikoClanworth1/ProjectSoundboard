@@ -75,13 +75,13 @@
                     </StackPanel>
 
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                        <Button Style="{StaticResource TitleBarButton}" Content="&#xE921;"
+                        <Button Style="{StaticResource TitleBarButton}" Focusable="False" Content="&#xE921;"
                                 Click="OnMinimiseClick" ToolTip="Minimise"
                                 AutomationProperties.Name="Minimise"/>
-                        <Button Style="{StaticResource TitleBarButton}" Content="&#xE922;"
+                        <Button Style="{StaticResource TitleBarButton}" Focusable="False" Content="&#xE922;"
                                 Click="OnMaximiseClick" ToolTip="Maximise"
                                 AutomationProperties.Name="Maximise"/>
-                        <Button Style="{StaticResource TitleBarButton}" Content="&#xE8BB;"
+                        <Button Style="{StaticResource TitleBarButton}" Focusable="False" Content="&#xE8BB;"
                                 Click="OnCloseClick" ToolTip="Close"
                                 AutomationProperties.Name="Close"/>
                     </StackPanel>
@@ -212,7 +212,7 @@
                                 ToolTip="Previous sound" AutomationProperties.Name="Previous sound"/>
                         <Button Style="{StaticResource IconButton}" Content="&#xE769;"
                                 FontFamily="Segoe MDL2 Assets" Command="{Binding TogglePauseCommand}"
-                                ToolTip="Pause / resume (Ctrl+Space)"
+                                ToolTip="Pause / resume (Space)"
                                 AutomationProperties.Name="Pause or resume"/>
                         <Button Style="{StaticResource IconButton}" Content="&#xE893;"
                                 FontFamily="Segoe MDL2 Assets" Command="{Binding PlayNextCommand}"

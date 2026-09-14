@@ -31,6 +31,7 @@ public partial class MainWindow : Window
 
         SourceInitialized += OnSourceInitialised;
         Loaded += OnLoaded;
+        PreviewKeyDown += OnWindowPreviewKeyDown;
 
         ApplyScale();
         ApplyBranding();
@@ -48,6 +49,33 @@ public partial class MainWindow : Window
         LogoImage.Source = Branding.Logo;
         LogoImage.Visibility = Visibility.Visible;
         LogoFallback.Visibility = Visibility.Collapsed;
+    }
+
+    /// <summary>
+    /// Space pauses and resumes, wherever focus happens to be.
+    ///
+    /// Caught on the way down rather than the way up: a button with keyboard focus acts on
+    /// Space itself, and after clicking Minimise the Minimise button is exactly what has it,
+    /// so the next press of Space minimised the window again. Taking it here means no button
+    /// ever sees it — except where Space is being typed or recorded, which it is left for.
+    /// </summary>
+    private void OnWindowPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key != System.Windows.Input.Key.Space) return;
+        if (System.Windows.Input.Keyboard.Modifiers != System.Windows.Input.ModifierKeys.None) return;
+
+        var focused = System.Windows.Input.Keyboard.FocusedElement;
+        if (focused is System.Windows.Controls.Primitives.TextBoxBase or System.Windows.Controls.PasswordBox) return;
+
+        // The hotkeys page is listening for a key to bind, and Space is a key someone may want.
+        if (_viewModel.Hotkeys.CapturingRow is not null) return;
+
+        e.Handled = true;
+
+        // Held down, it would pause and resume over and over.
+        if (e.IsRepeat) return;
+
+        _viewModel.PlayOrPause();
     }
 
     public MainViewModel ViewModel => _viewModel;

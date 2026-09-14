@@ -250,6 +250,18 @@ public sealed class AudioEngine : IDisposable
             }
         }
 
+        return StartVoices(entry, target);
+    }
+
+    /// <summary>
+    /// Open voices for a sound on whichever buses are running, with none of the playback-mode
+    /// rules. Play decides whether a sound should start; this is only how it starts. Moving a
+    /// sound that is already playing onto new outputs needs exactly that and nothing more:
+    /// Restart mode would find the old copy and rewind it, and stop-on-second-press would
+    /// take the move for a second press and stop it.
+    /// </summary>
+    private PlaybackHandle? StartVoices(SoundEntry entry, PlayTarget target)
+    {
         var settings = new VoiceSettings
         {
             Volume = entry.Volume,
@@ -303,6 +315,61 @@ public sealed class AudioEngine : IDisposable
 
     /// <summary>Play only through the monitor, used by the editor's preview button.</summary>
     public PlaybackHandle? Preview(SoundEntry entry) => Play(entry, PlayTarget.Monitor);
+
+    /// <summary>A sound moved onto new outputs, and the handle it moved from.</summary>
+    public sealed record Moved(PlaybackHandle From, PlaybackHandle To);
+
+    /// <summary>
+    /// Change the outputs, and take whatever is playing along with them.
+    ///
+    /// A bus only restarts when its own device changed, so switching preset left a song in
+    /// one of two states, both wrong: cut off on the bus that moved, or carrying on through
+    /// the old device on the one that did not, until somebody picked a new song. Each sound
+    /// is picked back up on the new outputs from the moment it had reached, paused if it was
+    /// paused.
+    ///
+    /// Only when the outputs really moved. A preset that changes levels and nothing else
+    /// reaches a playing sound already, and restarting it for nothing would be a hiccup.
+    /// </summary>
+    public IReadOnlyList<Moved> Reroute(Action reconfigure, Func<string, SoundEntry?> find)
+    {
+        // Where each one had got to, read before anything moves: a restarted bus throws its
+        // voices away, and a voice that has gone has no position left to ask for.
+        var playing = Active
+            .Where(h => !h.IsCompleted)
+            .Select(h => (Handle: h, At: h.PositionSeconds, Paused: h.IsPaused))
+            .ToList();
+
+        var before = Routing();
+        reconfigure();
+
+        if (playing.Count == 0 || Routing() == before) return [];
+
+        var moved = new List<Moved>();
+
+        foreach (var (old, at, paused) in playing)
+        {
+            old.Stop(0);
+
+            var entry = find(old.SoundId);
+            if (entry is null || !File.Exists(entry.FilePath)) continue;
+
+            var handle = StartVoices(entry, PlayTarget.Both);
+            if (handle is null) continue;
+
+            handle.Seek(at);
+            if (paused) handle.Pause();
+
+            moved.Add(new Moved(old, handle));
+        }
+
+        Log.Info($"Outputs changed; moved {moved.Count} playing sound(s) onto them.");
+        return moved;
+    }
+
+    /// <summary>Which devices the sound is actually going to, as opposed to what is asked for.</summary>
+    private (bool, string?, bool, string?) Routing() =>
+        (VirtualMicBus.IsRunning, VirtualMicBus.DeviceId, MonitorBus.IsRunning, MonitorBus.DeviceId);
 
     private bool AddVoice(PlaybackHandle handle, OutputBus bus, string path, VoiceSettings settings)
     {

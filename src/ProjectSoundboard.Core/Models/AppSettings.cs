@@ -186,6 +186,12 @@ public sealed class LibrarySettings
     public bool WatchFolders { get; set; } = true;
     public bool ScanOnStartup { get; set; } = true;
 
+    /// <summary>
+    /// Download a YouTube video's thumbnail with the song and use it as the song's artwork.
+    /// Remembered, because whoever wants artwork on one download wants it on all of them.
+    /// </summary>
+    public bool DownloadArtwork { get; set; } = true;
+
     public List<string> Extensions { get; set; } =
         new() { ".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac", ".wma", ".opus", ".aiff" };
 }

@@ -60,6 +60,9 @@ public partial class YouTubeDownloadWindow : Window
     private readonly ObservableCollection<PlaylistTrack> _tracks = new();
     private readonly List<string> _downloaded = new();
 
+    /// <summary>The thumbnail each downloaded song came with, keyed by the song's path.</summary>
+    private readonly Dictionary<string, string> _artwork = new(StringComparer.OrdinalIgnoreCase);
+
     private CancellationTokenSource? _work;
     private VideoInfo? _found;
     private PlaylistInfo? _playlist;
@@ -77,6 +80,8 @@ public partial class YouTubeDownloadWindow : Window
         FillFolders(suggestedFolder);
         RefreshToolState();
 
+        ArtworkCheck.IsChecked = _services.Settings.Settings.Library.DownloadArtwork;
+
         Loaded += (_, _) =>
         {
             OfferClipboardLink();
@@ -86,6 +91,9 @@ public partial class YouTubeDownloadWindow : Window
 
     /// <summary>What was downloaded, once the dialog closes with a result.</summary>
     public IReadOnlyList<string> DownloadedPaths => _downloaded;
+
+    /// <summary>Thumbnails that came down with the songs, for the caller to put on their tiles.</summary>
+    public IReadOnlyDictionary<string, string> DownloadedArtwork => _artwork;
 
     /// <summary>Tracks that could not be fetched, so the caller can say so.</summary>
     public int FailedCount { get; private set; }
@@ -174,6 +182,15 @@ public partial class YouTubeDownloadWindow : Window
         {
             PlaylistCheck.IsChecked = true;
         }
+    }
+
+    private void OnArtworkToggled(object sender, RoutedEventArgs e)
+    {
+        var wanted = ArtworkCheck.IsChecked == true;
+        if (_services.Settings.Settings.Library.DownloadArtwork == wanted) return;
+
+        _services.Settings.Settings.Library.DownloadArtwork = wanted;
+        _services.Settings.MarkDirty();
     }
 
     private void OnPlaylistToggled(object sender, RoutedEventArgs e)
@@ -548,6 +565,8 @@ public partial class YouTubeDownloadWindow : Window
 
     private async Task DownloadSingleAsync(YouTubeDownloader downloader, string folder)
     {
+        var withArtwork = ArtworkCheck.IsChecked == true;
+
         var progress = new Progress<DownloadProgress>(p =>
         {
             Progress.Value = p.Percent;
@@ -555,7 +574,7 @@ public partial class YouTubeDownloadWindow : Window
         });
 
         var file = await downloader.DownloadMp3Async(
-            _found!.Url, folder, NameBox.Text, 192, progress, _work!.Token);
+            _found!.Url, folder, NameBox.Text, 192, progress, _work!.Token, withArtwork);
 
         if (file is null)
         {
@@ -564,6 +583,8 @@ public partial class YouTubeDownloadWindow : Window
         }
 
         _downloaded.Add(file);
+        if (downloader.LastArtworkPath is { } art) _artwork[file] = art;
+
         Log.Info($"Downloaded '{Path.GetFileName(file)}' into {folder}.");
 
         Finish();
@@ -585,6 +606,9 @@ public partial class YouTubeDownloadWindow : Window
     {
         var chosen = _tracks.Where(t => t.Include).ToList();
         if (chosen.Count == 0) return;
+
+        // Read here, on the interface thread, before any of the downloads start.
+        var withArtwork = ArtworkCheck.IsChecked == true;
 
         // Taken once. The window may close while these are still winding down, and reading
         // it off the source afterwards would be reading a disposed object.
@@ -636,7 +660,7 @@ public partial class YouTubeDownloadWindow : Window
                 var name = track.Name.Trim().Length > 0 ? track.Name : track.Video.Title;
 
                 var file = await worker.DownloadMp3Async(
-                    track.Video.Url, folder, name, 192, progresses[index], token);
+                    track.Video.Url, folder, name, 192, progresses[index], token, withArtwork);
 
                 if (file is null)
                 {
@@ -648,6 +672,8 @@ public partial class YouTubeDownloadWindow : Window
                 }
 
                 _downloaded.Add(file);
+                if (worker.LastArtworkPath is { } art) _artwork[file] = art;
+
                 track.Include = false;   // shows what is done if this is stopped part way
                 percent[index] = 100;
                 done++;
@@ -737,6 +763,7 @@ public partial class YouTubeDownloadWindow : Window
         ResetNameButton.IsEnabled = !busy && _found is not null;
         FolderBox.IsEnabled = !busy;
         PlaylistCheck.IsEnabled = !busy;
+        ArtworkCheck.IsEnabled = !busy;
         // The whole panel, not just the list: renaming or unticking tracks while they are
         // being fetched changes what the run is doing halfway through it.
         PlaylistPanel.IsEnabled = !busy;

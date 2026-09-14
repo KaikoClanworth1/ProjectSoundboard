@@ -178,7 +178,9 @@ public partial class LibraryView : UserControl
 
         switch (e.Key)
         {
-            case Key.Enter or Key.Space:
+            // Enter plays the selection. Space no longer does: the window takes it to pause
+            // and resume, which is what it does everywhere else.
+            case Key.Enter:
                 if (_viewModel.SelectedSound is { } selected)
                 {
                     _viewModel.PlayCommand.Execute(selected);

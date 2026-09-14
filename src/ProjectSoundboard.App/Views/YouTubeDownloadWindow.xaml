@@ -170,6 +170,13 @@
             <ComboBox x:Name="FolderBox" Padding="8,6"
                       AutomationProperties.Name="Library folder to download into"/>
 
+            <!-- Remembered between downloads: wanting artwork on one means wanting it on all. -->
+            <CheckBox x:Name="ArtworkCheck" Margin="2,10,0,0"
+                      Content="Use the video's thumbnail as the song's artwork"
+                      Checked="OnArtworkToggled" Unchecked="OnArtworkToggled"
+                      ToolTip="Saved into the song itself, and shown on its tile"
+                      AutomationProperties.Name="Use the thumbnail as artwork"/>
+
             <!-- Progress -->
             <StackPanel x:Name="ProgressPanel" Margin="0,16,0,0" Visibility="Collapsed">
                 <ProgressBar x:Name="Progress" Height="6" Minimum="0" Maximum="100"

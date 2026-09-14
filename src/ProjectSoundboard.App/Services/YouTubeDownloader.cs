@@ -394,15 +394,24 @@ public sealed partial class YouTubeDownloader
     // -----------------------------------------------------------------------
 
     /// <summary>
+    /// The thumbnail from the last download that asked for one, or null when none was asked
+    /// for or none arrived. Kept on the instance like <see cref="LastError"/>, which is safe
+    /// because each download running at the same time has its own.
+    /// </summary>
+    public string? LastArtworkPath { get; private set; }
+
+    /// <summary>
     /// Fetch the audio and convert it to MP3 in <paramref name="folder"/>, named
     /// <paramref name="name"/>. Returns the finished path, or null with
     /// <see cref="LastError"/> set.
     /// </summary>
     public async Task<string?> DownloadMp3Async(
         string url, string folder, string name, int bitrateKbps,
-        IProgress<DownloadProgress>? progress, CancellationToken ct = default)
+        IProgress<DownloadProgress>? progress, CancellationToken ct = default,
+        bool withArtwork = false)
     {
         LastError = null;
+        LastArtworkPath = null;
         url = Normalise(url);
 
         if (!LooksLikeYouTube(url))
@@ -460,6 +469,23 @@ public sealed partial class YouTubeDownloader
                 arguments.Add(ffmpeg);
             }
 
+            // The thumbnail as the song's artwork: written out beside it so the library can put
+            // it on the tile, and embedded in the file so anything else that plays the song —
+            // Plex, a phone, Explorer — shows it as well. Converting to JPEG and embedding both
+            // need ffmpeg; without it the picture still arrives, as whatever YouTube served, and
+            // the tile can still use that.
+            if (withArtwork)
+            {
+                arguments.Add("--write-thumbnail");
+
+                if (ffmpeg is not null)
+                {
+                    arguments.Add("--convert-thumbnails");
+                    arguments.Add("jpg");
+                    arguments.Add("--embed-thumbnail");
+                }
+            }
+
             AddClient(arguments, client);
             arguments.Add(url);
 
@@ -482,15 +508,17 @@ public sealed partial class YouTubeDownloader
 
             if (code == 0)
             {
-                if (File.Exists(target)) return target;
+                if (File.Exists(target)) return Finished(target);
 
-                // Without ffmpeg the conversion cannot happen and the original audio is
-                // kept instead. Whatever landed under this name is the result.
+                // Without ffmpeg the conversion cannot happen and the original audio is kept
+                // instead. Whatever landed under this name is the result — apart from the
+                // thumbnail, which lands under the same name and is not the song.
                 var produced = Directory
                     .EnumerateFiles(folder, stem + ".*")
-                    .FirstOrDefault(f => !f.EndsWith(".part", StringComparison.OrdinalIgnoreCase));
+                    .FirstOrDefault(f => !f.EndsWith(".part", StringComparison.OrdinalIgnoreCase)
+                                         && !IsArtwork(f));
 
-                if (produced is not null) return produced;
+                if (produced is not null) return Finished(produced);
 
                 LastError = "The download finished but no file appeared.";
                 return null;
@@ -500,7 +528,25 @@ public sealed partial class YouTubeDownloader
         }
 
         return null;
+
+        // The song, with its picture found and remembered when one was asked for.
+        string Finished(string audio)
+        {
+            if (withArtwork)
+            {
+                LastArtworkPath = ArtworkExtensions
+                    .Select(ext => Path.Combine(folder, stem + ext))
+                    .FirstOrDefault(File.Exists);
+            }
+
+            return audio;
+        }
     }
+
+    private static readonly string[] ArtworkExtensions = [".jpg", ".webp", ".png", ".jpeg"];
+
+    private static bool IsArtwork(string path) =>
+        ArtworkExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase);
 
     // -----------------------------------------------------------------------
 

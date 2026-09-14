@@ -251,6 +251,42 @@ internal static class Program
             failures++;
         }
 
+        // ---- the same song with its thumbnail as artwork -------------------------
+        Console.WriteLine();
+        Console.WriteLine("downloading again, with the thumbnail as artwork…");
+
+        var withArt = await downloader.DownloadMp3Async(
+            info.Url, folder, YouTubeDownloader.SafeFileName(info.Title) + " art", 192,
+            null, default, withArtwork: true);
+
+        var picture = downloader.LastArtworkPath;
+
+        Console.WriteLine($"  song      : {(withArt is null ? "(failed)" : Path.GetFileName(withArt))}");
+        Console.WriteLine($"  picture   : {(picture is null ? "(none)" : Path.GetFileName(picture))}");
+
+        if (withArt is null || picture is null || !File.Exists(picture))
+        {
+            Console.WriteLine("FAIL — no thumbnail came down with the song.");
+            failures++;
+        }
+        else if (!withArt.EndsWith(".mp3", StringComparison.OrdinalIgnoreCase))
+        {
+            // The picture shares the song's name, so this is what taking it for the song looks like.
+            Console.WriteLine("FAIL — the file handed back as the song is not the song.");
+            failures++;
+        }
+        else
+        {
+            var embedded = HasEmbeddedPicture(withArt);
+            Console.WriteLine($"  embedded  : {embedded}");
+
+            if (!embedded)
+            {
+                Console.WriteLine("FAIL — the song does not carry the picture inside it.");
+                failures++;
+            }
+        }
+
         try { Directory.Delete(folder, true); Console.WriteLine("  cleaned up"); }
         catch { /* leaving a temp folder behind is not a failure */ }
 
@@ -277,6 +313,30 @@ internal static class Program
         if (!ok) Console.WriteLine($"        expected {expected ?? "(no video)"}");
 
         return ok ? 0 : 1;
+    }
+
+    /// <summary>Whether an audio file has a picture inside it, as ffprobe sees it.</summary>
+    private static bool HasEmbeddedPicture(string path)
+    {
+        var folder = YouTubeDownloader.FindFfmpeg();
+        if (folder is null) return false;
+
+        var info = new System.Diagnostics.ProcessStartInfo(Path.Combine(folder, "ffprobe.exe"))
+        {
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        foreach (var a in new[] { "-v", "quiet", "-show_streams", "-of", "csv=p=0", path })
+            info.ArgumentList.Add(a);
+
+        using var process = System.Diagnostics.Process.Start(info)!;
+        var output = process.StandardOutput.ReadToEnd();
+        process.WaitForExit(15000);
+
+        return output.Contains("video", StringComparison.OrdinalIgnoreCase)
+            || output.Contains("mjpeg", StringComparison.OrdinalIgnoreCase);
     }
 
     private static int Playlist(string input, bool expectedIsPlaylist, string expectedUrl)
